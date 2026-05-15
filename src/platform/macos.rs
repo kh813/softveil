@@ -22,12 +22,14 @@ pub fn apply_overlay_settings(window: &Window, alpha: u8) {
         ns_window.setIgnoresMouseEvents(true);
         ns_window.setBackgroundColor(Some(&NSColor::clearColor()));
         
-        // NSStatusWindowLevel = 25
-        ns_window.setLevel(26);
+        // NSStatusWindowLevel = 25. Use a level high enough to stay above most fullscreen apps.
+        // ScreenSaverWindowLevel is around 1000, but let's try just above Status level first.
+        ns_window.setLevel(28); 
         
         ns_window.setCollectionBehavior(
             NSWindowCollectionBehavior::CanJoinAllSpaces |
-            NSWindowCollectionBehavior::Stationary
+            NSWindowCollectionBehavior::Stationary |
+            NSWindowCollectionBehavior::FullScreenAuxiliary
         );
 
         ns_window.setOpaque(false);
