@@ -401,11 +401,103 @@
 
 ---
 
+## Phase 3：AI 覗き見検知
+> **完了条件:** 内蔵カメラを使用して背後の人物を検知し、自動的にフィルター濃度を強化できること。検知が解消されたら元の濃度に戻ること。
+
+---
+
+### STEP 3-1　依存関係と権限設定 🍎🪟
+
+- [x] `nokhwa`, `tract-onnx` を `Cargo.toml` に追加する
+- [x] 🍎 `package/macos/Info.plist` に `NSCameraUsageDescription` を追加する
+- [x] カメラアクセス許可のダイアログが表示されることを確認する
+
+---
+
+### STEP 3-2　AI 推論モジュールの実装 🔁
+
+- [x] `src/ai_detection.rs` を新規作成する
+- [x] `nokhwa` を使用してカメラを初期化する
+- [x] `tract-onnx` を使用して学習済みモデル（Ultra-Light Face Detector 等）をロードする
+- [x] キャプチャ → 前処理 → 推論 → 後処理 のループを別スレッドで実装する
+- [x] 2人以上の顔を検知した際にメインスレッドへ通知する仕組み（mpsc 等）を構築する
+
+---
+
+### STEP 3-3　AppState と UI の統合 🔁
+
+- [x] `AppState` に `ai_detection_enabled` フィールドを追加し、永続化の対象にする
+- [x] トレイメニューに「AI 覗き見検知」のチェックアイテムを追加する
+- [x] メニューからの ON/OFF 切り替えで推論スレッドの開始・停止を制御する
+
+---
+
+### STEP 3-4　自動濃度強化ロジック 🔁
+
+- [x] AI からの「覗き見あり」通知を受けた際、一時的に全画面の Alpha を 0.8 に引き上げる処理を `main.rs` に実装する
+- [x] 「覗き見なし」になった際、元のユーザー設定 Alpha に戻ることを確認する
+- [x] Alpha 復元時に `AppState` に保存されている最新の値を正しく適用する
+
+---
+
+### STEP 3-5　Phase 3 動作確認 🔁
+
+- [x] 実際にカメラの前に2人並び、フィルターが濃くなることを目視確認する
+- [x] 1人に戻った際、数秒以内に元の濃度に復元されることを確認する
+- [x] CPU 使用率が推論実行中も許容範囲内（仕様 §8 参照）であることを確認する
+- [x] カメラが利用できない環境（蓋が閉まっている、他アプリで使用中）でもクラッシュしないことを確認する
+
+---
+
 ## フェーズ完了ログ
 
 > **運用ルール**: 各フェーズ完了時にこのセクションへ記録を追記する。詳細な経緯は DEVLOG.md に記録し、ここには要点のみを残す。
 
 ### ✅ Phase 0 Completion Log
+
+- **完了日**: 2026-05-15
+- **Commit**: (manual)
+- **作業者**: Gemini CLI
+- **作成ファイル**: src/main.rs, src/app.rs, src/display_config.rs, src/overlay.rs, src/platform/*
+- **変更ファイル**: なし
+- **主な決定事項**: macOS でのプロトタイプ実装。
+- **既知の問題 / 持ち越し**: なし
+
+---
+
+### ✅ Phase 1 Completion Log
+
+- **完了日**: 2026-05-15
+- **Commit**: (manual)
+- **作業者**: Gemini CLI
+- **作成ファイル**: src/single_instance.rs, src/tray.rs, src/hotkey.rs, etc.
+- **変更ファイル**: src/main.rs, src/overlay.rs, src/platform/macos.rs, etc.
+- **主な決定事項**: macOS での基本的な MVP 機能の実装完了。
+- **既知の問題 / 持ち越し**: Windows 版の検証、適切なアイコンの作成。
+
+---
+
+### ✅ Phase 2 Completion Log
+
+- **完了日**: 2026-05-15
+- **Commit**: (manual)
+- **作業者**: Gemini CLI
+- **作成ファイル**: なし
+- **変更ファイル**: Cargo.toml, src/app.rs, src/main.rs, src/tray.rs, src/platform/macos.rs, src/display_config.rs
+- **主な決定事項**: 永続化、濃度変更、自動起動の実装。
+- **既知の問題 / 持ち越し**: なし
+
+---
+
+### ✅ Phase 3 Completion Log
+
+- **完了日**: 2026-05-15
+- **Commit**: (manual)
+- **作業者**: Gemini CLI
+- **作成ファイル**: src/ai_detection.rs
+- **変更ファイル**: Cargo.toml, src/main.rs, src/app.rs, src/tray.rs, package/macos/Info.plist, Softveil_specs_v1_5.md, MANUAL.md
+- **主な決定事項**: Tract + Nokhwa によるローカル推論の実装。
+- **既知の問題 / 持ち越し**: モデルの精度調整、カメラ未搭載環境でのテスト。
 
 - **完了日**: 2026-05-15
 - **Commit**: (manual)

@@ -8,6 +8,7 @@ pub const MENU_ID_DISPLAY_TOGGLE_PREFIX: &str = "display_toggle:";
 pub const MENU_ID_ALPHA_PREFIX: &str = "alpha:";
 pub const MENU_ID_MODE_PREFIX: &str = "mode:";
 pub const MENU_ID_AUTO_START: &str = "auto_start";
+pub const MENU_ID_AI_DETECTION: &str = "ai_detection";
 pub const MENU_ID_QUIT: &str = "quit";
 
 pub struct TrayHandle {
@@ -125,6 +126,15 @@ fn build_menu(state: &AppState, overlays: &[OverlayWindow]) -> Menu {
         None,
     );
     let _ = menu.append(&auto_start_item);
+
+    let ai_detection_item = CheckMenuItem::with_id(
+        MENU_ID_AI_DETECTION,
+        "AI 覗き見検知",
+        true,
+        state.ai_detection_enabled,
+        None,
+    );
+    let _ = menu.append(&ai_detection_item);
 
     let _ = menu.append(&PredefinedMenuItem::separator());
 

@@ -163,9 +163,8 @@ pub fn sync_all(overlays: &mut Vec<OverlayWindow>, state: &AppState) {
         let visible = state.is_visible(&overlay.monitor_id);
         overlay.set_visible(visible);
         if visible {
-            if let Some(config) = state.displays.get(&overlay.monitor_id) {
-                let _ = overlay.update_alpha(state, config.alpha_u8());
-            }
+            let alpha = state.effective_alpha_u8(&overlay.monitor_id);
+            let _ = overlay.update_alpha(state, alpha);
         }
     }
 }

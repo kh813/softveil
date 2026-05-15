@@ -20,5 +20,9 @@
     <true/>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>NSCameraUsageDescription</key>
+    <string>背後の人物を検知してフィルターを自動調整するためにカメラを使用します。</string>
+    <key>NSAccessibilityUsageDescription</key>
+    <string>グローバルショートカットを有効にするためにアクセシビリティ権限が必要です。</string>
 </dict>
 </plist>

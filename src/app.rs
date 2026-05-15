@@ -16,6 +16,7 @@ pub struct AppConfig {
     pub default_alpha: f32,
     pub auto_start: bool,
     pub filter_mode: FilterMode,
+    pub ai_detection_enabled: bool,
     pub display_settings: HashMap<String, DisplayConfig>,
 }
 
@@ -26,6 +27,7 @@ impl Default for AppConfig {
             default_alpha: 0.30,
             auto_start: false,
             filter_mode: FilterMode::BlackLayer,
+            ai_detection_enabled: false,
             display_settings: HashMap::new(),
         }
     }
@@ -37,6 +39,8 @@ pub struct AppState {
     pub default_config: DisplayConfig,
     pub auto_start: bool,
     pub filter_mode: FilterMode,
+    pub ai_detection_enabled: bool,
+    pub ai_peeper_detected: bool,
     stored_display_settings: HashMap<String, DisplayConfig>,
 }
 
@@ -54,6 +58,8 @@ impl AppState {
             },
             auto_start: config.auto_start,
             filter_mode: config.filter_mode,
+            ai_detection_enabled: config.ai_detection_enabled,
+            ai_peeper_detected: false,
             stored_display_settings: config.display_settings,
         }
     }
@@ -71,12 +77,24 @@ impl AppState {
             default_alpha: self.default_config.alpha,
             auto_start: self.auto_start,
             filter_mode: self.filter_mode,
+            ai_detection_enabled: self.ai_detection_enabled,
             display_settings,
         };
 
         let _ = confy::store(APP_NAME, None, config);
     }
 
+    pub fn toggle_ai_detection(&mut self) -> bool {
+        self.ai_detection_enabled = !self.ai_detection_enabled;
+        if !self.ai_detection_enabled {
+            self.ai_peeper_detected = false;
+        }
+        self.ai_detection_enabled
+    }
+
+    pub fn set_peeper_detected(&mut self, detected: bool) {
+        self.ai_peeper_detected = detected;
+    }
     pub fn set_filter_mode(&mut self, mode: FilterMode) {
         self.filter_mode = mode;
     }
@@ -145,5 +163,12 @@ impl AppState {
             return false;
         }
         self.displays.values().all(|c| c.enabled)
+    }
+
+    pub fn effective_alpha_u8(&self, id: &MonitorId) -> u8 {
+        if self.ai_peeper_detected {
+            return 204; // 80% alpha
+        }
+        self.displays.get(id).map(|c| c.alpha_u8()).unwrap_or(77)
     }
 }

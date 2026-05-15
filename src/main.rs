@@ -5,10 +5,12 @@ mod platform;
 mod single_instance;
 mod tray;
 mod hotkey;
+mod ai_detection;
 
 use app::{AppState, FilterMode};
 use display_config::{MonitorId, DisplayConfig, DisconnectedCache};
-use tray::{TrayHandle, MENU_ID_GLOBAL_TOGGLE, MENU_ID_DISPLAY_TOGGLE_PREFIX, MENU_ID_ALPHA_PREFIX, MENU_ID_MODE_PREFIX, MENU_ID_AUTO_START, MENU_ID_QUIT};
+use tray::{TrayHandle, MENU_ID_GLOBAL_TOGGLE, MENU_ID_DISPLAY_TOGGLE_PREFIX, MENU_ID_ALPHA_PREFIX, MENU_ID_MODE_PREFIX, MENU_ID_AUTO_START, MENU_ID_AI_DETECTION, MENU_ID_QUIT};
+use ai_detection::{AIDetectionCommand, start_detection_thread};
 use auto_launch::AutoLaunchBuilder;
 use hotkey::HotkeyEvent;
 use tao::event_loop::ControlFlow;
@@ -19,6 +21,7 @@ use std::sync::mpsc;
 #[derive(Debug)]
 enum UserEvent {
     Hotkey(HotkeyEvent),
+    AIDetected(bool),
 }
 
 fn main() {
@@ -97,6 +100,22 @@ fn main() {
         let _ = auto_launcher.disable();
     }
 
+    let (ai_cmd_tx, ai_cmd_rx) = mpsc::channel();
+    let (ai_event_tx, ai_event_rx) = mpsc::channel();
+    start_detection_thread(ai_cmd_rx, ai_event_tx);
+
+    if state.ai_detection_enabled {
+        let _ = ai_cmd_tx.send(AIDetectionCommand::Start);
+    }
+
+    // Spawn a thread to forward AI detection events to the event loop
+    let proxy_for_ai = proxy.clone();
+    std::thread::spawn(move || {
+        while let Ok(detected) = ai_event_rx.recv() {
+            let _ = proxy_for_ai.send_event(UserEvent::AIDetected(detected));
+        }
+    });
+
     let menu_channel = MenuEvent::receiver();
 
     println!("Softveil Phase 1 running. Waiting for events...");
@@ -105,14 +124,24 @@ fn main() {
         *control_flow = ControlFlow::Wait;
 
         // Handle Hotkey events via UserEvent
-        if let Event::UserEvent(UserEvent::Hotkey(HotkeyEvent::ToggleGlobal)) = event {
-            println!("Event: Toggle Global (Hotkey)");
-            state.toggle_global();
-            state.save();
-            overlay::sync_all(&mut overlays, &state);
-            if let Some(ref t) = tray_handle {
-                t.rebuild_menu(&state, &overlays);
+        match event {
+            Event::UserEvent(UserEvent::Hotkey(HotkeyEvent::ToggleGlobal)) => {
+                println!("Event: Toggle Global (Hotkey)");
+                state.toggle_global();
+                state.save();
+                overlay::sync_all(&mut overlays, &state);
+                if let Some(ref t) = tray_handle {
+                    t.rebuild_menu(&state, &overlays);
+                }
             }
+            Event::UserEvent(UserEvent::AIDetected(detected)) => {
+                if state.ai_peeper_detected != detected {
+                    println!("Event: AI Peeper Detected = {}", detected);
+                    state.set_peeper_detected(detected);
+                    overlay::sync_all(&mut overlays, &state);
+                }
+            }
+            _ => (),
         }
 
         // Handle Menu events (these usually trigger events themselves)
@@ -169,6 +198,18 @@ fn main() {
                     if let Some(ref t) = tray_handle {
                         t.rebuild_menu(&state, &overlays);
                     }
+                }
+            } else if id == MENU_ID_AI_DETECTION {
+                println!("Menu: Toggle AI Detection");
+                let enabled = state.toggle_ai_detection();
+                if enabled {
+                    let _ = ai_cmd_tx.send(AIDetectionCommand::Start);
+                } else {
+                    let _ = ai_cmd_tx.send(AIDetectionCommand::Stop);
+                }
+                state.save();
+                if let Some(ref t) = tray_handle {
+                    t.rebuild_menu(&state, &overlays);
                 }
             } else if id == MENU_ID_AUTO_START {
                 println!("Menu: Toggle Auto Start");
