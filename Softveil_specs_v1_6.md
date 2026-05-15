@@ -1,8 +1,8 @@
 # 覗き見防止フィルターアプリ「Softveil」基本仕様書
 
-**バージョン:** 1.6
-**作成日:** 2026年5月
-**ステータス:** Phase 4 実装中
+**バージョン:** 1.8
+**作成日:** 2026年5月15日
+**ステータス:** Phase 4 実装完了（CI/CD・Windows 完備）
 
 **変更履歴:**
 
@@ -16,6 +16,7 @@
 | 1.5 | F-10 にユースケース記述・グローバルOFFとの優先関係・デフォルト値の根拠を追記。F-07 メニュー例をノートPC+外付けモニターの具体例に更新 |
 | 1.6 | Phase 3（AI 覗き見検知）の技術選定（tract + nokhwa）と機能要件を追加。依存関係に `tiny-skia`, `confy`, `auto-launch` 等を追加。 |
 | 1.7 | Phase 4（Windows 完備・正式ビルド）開始。アイコン生成スクリプトの作成、macOS テンプレートアイコン対応、各プラットフォームへの埋め込み完了。 |
+| 1.8 | Windows ホットプラグ検知（隠しウィンドウ方式）、GitHub Actions による CI/CD 構築、AI モデルの同梱配布対応。 |
 
 ---
 
@@ -62,7 +63,7 @@
 | 開発マシン | macOS (Apple Silicon / Intel) |
 | 開発言語 | Rust (Edition 2021) |
 | ビルドツール | Cargo |
-| Windowsクロスコンパイル | `cross` クレート または GitHub Actions による CI ビルド |
+| Windowsクロスコンパイル | GitHub Actions による CI ビルド |
 
 ### 2.2 ターゲット環境
 
@@ -80,9 +81,7 @@
 | `make all` (macOS から) | macOS ユニバーサル | `Softveil.app` | `lipo` でユニバーサルバイナリ生成 |
 | GitHub Actions `windows-latest` | Windows x64 | `Softveil.exe` | `x86_64-pc-windows-msvc`; リリースタグで起動 |
 
-> **Windows ビルド**: MSVC SDK が必要なため macOS からの直接ビルド不可。GitHub Actions の `windows-latest` ランナーでビルドし、リリースアセットとしてアップロードする。**現在コードベースは共通化済みだが、実機検証と CI 整備が Phase 4 の課題。**
-
-> **macOS Gatekeeper**: 公証（notarization）なしで配布すると初回起動時に警告が出る。配布方法（`.app` 直配布 / `.dmg` / 署名付き）は未解決事項 #4 を参照。
+> **Windows ビルド**: GitHub Actions の `windows-latest` ランナーでビルドし、リリースアセットとしてアップロードする。AI モデル (`face_detector.onnx`) を実行ファイルと同階層に同梱する。
 
 ### 2.4 依存クレートとバージョン
 
@@ -94,9 +93,6 @@ name = "softveil"
 version = "0.1.0"
 edition = "2021"
 description = "Software privacy filter for macOS and Windows"
-# macOS .app バンドル識別子（Info.plist の CFBundleIdentifier と一致させること）
-# → com.yourname.softveil
-# Windows 多重起動ミューテックス名: "Local\\SoftveilMutex"
 
 [[bin]]
 name = "softveil"
@@ -115,9 +111,10 @@ global-hotkey = "0.6"
 
 # ── 2D 描画（フィルター塗りつぶし）────────────────────────────
 softbuffer = "0.4"
+image      = "0.25"
 tiny-skia  = "0.11"
 
-# ── 設定・永続化・自動起動 ──────────────────────────────
+# ── 設定・永続化 ──────────────────────────────────────────
 confy       = "0.6"
 serde       = { version = "1.0", features = ["derive"] }
 auto-launch = "0.5"
@@ -128,9 +125,11 @@ tract-onnx = "0.21"
 
 # ── macOS ネイティブ API ────────────────────────────────────────
 [target.'cfg(target_os = "macos")'.dependencies]
-objc2             = "0.5"
-objc2-app-kit     = { version = "0.2", features = ["NSWindow", "NSColor", "NSScreen"] }
-objc2-foundation  = { version = "0.2", features = ["NSString"] }
+libc              = "0.2"
+objc2             = "0.6"
+objc2-app-kit     = { version = "0.3", features = ["NSWindow", "NSColor", "NSScreen"] }
+objc2-foundation  = { version = "0.3", features = ["NSString", "NSNotification"] }
+block2            = "0.6"
 core-graphics     = { version = "0.24", features = ["highsierra"] }
 
 # ── Windows ネイティブ API ─────────────────────────────────────
@@ -140,28 +139,18 @@ windows-sys = { version = "0.59", features = [
     "Win32_UI_WindowsAndMessaging",
     "Win32_Graphics_Gdi",
     "Win32_System_Threading",
+    "Win32_System_LibraryLoader",
 ] }
 
 [profile.release]
 opt-level     = 3
 lto           = true
 codegen-units = 1
-strip         = true     # バイナリからデバッグシンボルを除去してサイズ削減
+strip         = true
+
+[build-dependencies]
+winres = "0.1"
 ```
-
-#### クレート選定の根拠
-
-| クレート | バージョン | 選定理由 |
-|---------|-----------|---------|
-| `tao` | 0.30 | Tauri プロジェクト由来。`tray-icon` との統合実績が豊富。`rwh_06` feature で `raw-window-handle` 0.6 系と統一 |
-| `tray-icon` | 0.19 | `tao` と同一エコシステム。macOS メニューバー・Windows トレイを同一 API で操作可能 |
-| `muda` | 0.15 | `tray-icon` と同梱に近い関係。コンテキストメニューの構築に特化 |
-| `global-hotkey` | 0.6 | `tray-icon` と同一作者。`tao` イベントループとの統合が自然 |
-| `softbuffer` | 0.4 | GPU 不要で CPU のみで動作するフレームバッファ描画。フィルターは静的な単色塗りつぶしで十分なため `pixels` や `wgpu` より軽量 |
-| `objc2` 系 | 0.5 / 0.2 | Safe Rust から Objective-C API を呼ぶ現行標準。旧 `objc` クレートより型安全 |
-| `windows-sys` | 0.59 | FFI バインディング。`windows` クレートより軽量で必要な feature のみ有効化できる |
-
-> **`tiny-skia` を外した理由:** フィルターはアルファ値付きの単色矩形塗りつぶしのみ（MVP）。`softbuffer` のフレームバッファに直接 RGBA 値を書き込む方が依存が少なく高速。縦縞ルーバー（Ver 2.0）の時点で `tiny-skia` を追加する。
 
 ---
 
@@ -298,23 +287,12 @@ Softveil を終了
 - **推論エンジン**: `tract-onnx` を使用し、ローカルで ONNX モデルを実行する
     - **モデル**: `Ultra-Light-Fast-Generic-Face-Detector-1MB` (version-slim-320_simplified.onnx)
     - **入力仕様**: 1x3x240x320 (NCHW), f32
-    - **前処理**:
-        - 解像度 320x240 へリサイズ（Triangle フィルタ推奨）
-        - 正規化: `(pixel_value - 127.0) / 128.0`
-    - **判定ロジック**: スコア 0.7 以上の顔を 2 つ以上検知した場合に「覗き見あり」と判定
+    - **配布対応**: 実行ファイルの Resources フォルダ（macOS）または同一ディレクトリ（Windows）からモデルをロードする
+- **判定ロジック**: スコア 0.7 以上の顔を 2 つ以上検知した場合に「覗き見あり」と判定
 - **カメラアクセス**: `nokhwa` を使用してクロスプラットフォームなカメラ取得を行う
-    - **設定**: RGB フォーマット、利用可能な最高フレームレート
-- **オーケストレーション**:
-    - 専用スレッドで `nokhwa` のキャプチャと `tract` の推論をループ実行（0.5秒間隔）
-    - メインループとの通信は `mpsc` チャネルおよび `tao` の `UserEvent` を介して非同期に行う
-- **カメラ利用不可時の挙動（重要）**:
-    - クラムシェルモード等でカメラが利用できない、または初期化に失敗した場合でも、**基本のプライバシーフィルター機能（単色/ルーバー）は動作を継続する**
-    - AI 検知スレッドはエラーをログ出力しつつ、定期的にリトライまたは待機状態となるが、メインの描画ループを妨げない
 - **動作フロー**:
     1. 覗き見検知時、全ディスプレイの濃度を一時的に 80% (Alpha=204) に引き上げる
     2. 解消時、各ディスプレイの `AppState` に基づく本来の設定値へ戻す
-- **プライバシー**: 画像データはメモリ上でのみ処理され、外部への送信やディスクへの保存は一切行わない
-- **macOS 固有**: `Info.plist` にカメラ使用目的の記述を追加し、システム許可を求める
 
 ---
 
@@ -338,15 +316,6 @@ Softveil を終了
 | 背景色 | `#000000` | 黒 |
 | 不透明度（Alpha） | `0.30`（30%） | ユーザーの視認性とプライバシー保護のバランス点 |
 
-フレームバッファへの書き込み値は ARGB 32bit 形式で `0x4C000000`（Alpha = 77 ≒ 30%）。
-
-#### パターン B：縦縞ルーバー（Ver 2.0 拡張）
-
-| パラメータ | デフォルト値 | 説明 |
-|-----------|------------|------|
-| 縞の幅 | 1px 黒 : 1px 透明 | 物理的なルーバーフィルムを模倣 |
-| 不透明度 | 黒ピクセルのみ `0xFF` | 斜め視点からは黒のみ見えるルーバー効果 |
-
 ---
 
 ## 5. フォルダ構成
@@ -354,740 +323,46 @@ Softveil を終了
 ```
 softveil/
 ├── Cargo.toml
-├── Cargo.lock
 ├── build.rs                        # Windows: アイコン埋め込み（winres）
-│
 ├── scripts/
-│   ├── bundle_macos.sh             # macOS: .app バンドル作成スクリプト
-│   └── generate_icons.sh           # 共通: SVG から各プラットフォーム用アイコンを生成
-│
+│   ├── bundle_macos.sh             # macOS: .app バンドル作成
+│   └── generate_icons.sh           # アイコン生成スクリプト
 ├── assets/
-│   ├── softveil_icon.svg           # 元アイコン（ベクターソース）
-│   ├── icon_macos.icns             # macOS .app バンドル用（マルチサイズ）
-│   ├── icon_macos_template.png     # メニューバー用テンプレート画像（22×22, 透過）
-│   ├── icon_macos_template@2x.png  # メニューバー用テンプレート画像（44×44, 透過）
-│   └── icon_windows.ico            # Windows 用（16/32/48/64/256px マルチサイズ）
-│
+│   ├── softveil_icon.svg           # ソース
+│   ├── face_detector.onnx          # AI モデル
+│   └── ...
 ├── src/
-│   ├── main.rs                     # エントリポイント。起動フロー全体を orchestrate
-│   ├── app.rs                      # AppState 構造体。グローバル状態＋ディスプレイ別設定を管理
-│   ├── display_config.rs           # DisplayConfig 構造体。ディスプレイ別設定の保持・引き継ぎロジック
-│   ├── overlay.rs                  # オーバーレイウィンドウの生成・描画・ホットプラグ対応
-│   ├── tray.rs                     # トレイ/メニューバーアイコン・ディスプレイ別サブメニュー
-│   ├── hotkey.rs                   # グローバルショートカットの登録と監視
-│   ├── single_instance.rs          # 多重起動防止（プラットフォーム別実装）
-│   │
-│   └── platform/
-│       ├── mod.rs                  # プラットフォーム共通インターフェース定義
-│       ├── macos.rs                # macOS 固有: NSWindow 操作・ホットプラグ検知
-│       └── windows.rs              # Windows 固有: HWND 操作・WM_DISPLAYCHANGE 処理
-│
-├── resources/
-│   └── windows/
-│       └── app.rc                  # Windows リソースファイル（アイコン・バージョン情報）
-│
-└── package/
-    ├── macos/
-    │   └── Info.plist              # .app バンドル用（LSUIElement 等）
-    └── windows/
-        └── softveil.wxs     # WiX インストーラー定義（Ver 2.0 以降）
+│   ├── platform/
+│   │   ├── macos.rs                # macOS 固有
+│   │   └── windows.rs              # Windows 固有
+│   └── ...
+└── .github/workflows/
+    └── release.yml                 # GitHub Actions CI/CD
 ```
-
-### ファイル責務サマリー
-
-| ファイル | 責務 |
-|---------|------|
-| `main.rs` | 初期化順序の制御。各モジュールの呼び出し元。`tao` イベントループの起動 |
-| `app.rs` | グローバルなフィルターON/OFF状態と、ディスプレイ別 `DisplayConfig` のマップを管理 |
-| `display_config.rs` | ディスプレイ1枚分の設定（`enabled`・`alpha`）を保持。切断後の再接続時の設定引き継ぎロジック |
-| `overlay.rs` | `tao` ウィンドウの生成・`softbuffer` 描画・ホットプラグ時の追加/削除処理 |
-| `tray.rs` | `tray-icon` / `muda` を使ったアイコン・メニューのセットアップ。ディスプレイ別サブメニューの動的再構築 |
-| `hotkey.rs` | `global-hotkey` によるキー登録とイベント受信スレッドの管理 |
-| `single_instance.rs` | 多重起動チェック。macOS はロックファイル、Windows は名前付きミューテックス |
-| `platform/macos.rs` | `NSWindow` 操作・`NSApplicationDidChangeScreenParametersNotification` によるホットプラグ検知 |
-| `platform/windows.rs` | `HWND` 操作・`WM_DISPLAYCHANGE` メッセージによるホットプラグ検知 |
 
 ---
 
 ## 6. モジュール設計・実装方針
 
-### 6.1 main.rs　─ エントリポイント
-
-**責務:** 起動フロー全体の制御と `tao` イベントループの実行。
-
-```
-fn main()
-  │
-  ├─ single_instance::acquire()        → 多重起動チェック（失敗したら即 exit）
-  ├─ let event_loop = EventLoop::new() → tao イベントループ生成
-  ├─ let (tx, rx) = mpsc::channel()    → ショートカット通知チャネル生成
-  ├─ hotkey::register(tx)              → ショートカット登録（別スレッド起動）
-  ├─ let monitors = event_loop.available_monitors().collect()
-  ├─ let mut state = AppState::new()
-  ├─ let mut overlays = overlay::create_all(&event_loop, &monitors)
-  ├─ tray::setup(&event_loop)          → トレイ/メニューバー初期化
-  └─ event_loop.run(|event, _, flow| {
-        // tray イベント処理
-        // hotkey チャネル受信処理
-        // 終了処理
-     })
-```
-
-**実装方針:**
-- `event_loop.run()` のクロージャ内でのみウィンドウ操作を行う（`tao` の制約）
-- `AppState` は `Rc<RefCell<AppState>>` でクロージャにキャプチャする（シングルスレッドで十分）
-- パニックによる異常終了時もトレイアイコンが残らないよう `std::panic::set_hook` で後処理を登録する
-
----
-
-### 6.2 app.rs　─ アプリ状態管理
-
-**責務:** グローバルなフィルターON/OFF状態と、ディスプレイIDをキーとした設定マップを管理する。
-
-```rust
-use std::collections::HashMap;
-use crate::display_config::{DisplayConfig, MonitorId};
-
-pub struct AppState {
-    /// 全ディスプレイ一括ON/OFFのグローバルスイッチ
-    /// false のとき、個別設定に関係なく全フィルターを非表示にする
-    pub global_enabled: bool,
-
-    /// ディスプレイIDをキーとした個別設定マップ
-    /// キー: MonitorId（プラットフォーム固有のモニター識別子をラップした型）
-    pub displays: HashMap<MonitorId, DisplayConfig>,
-
-    /// 新規ディスプレイ接続時に適用するデフォルト設定
-    pub default_config: DisplayConfig,
-}
-
-impl AppState {
-    pub fn new() -> Self
-
-    /// グローバルスイッチをトグルし、新しい global_enabled を返す
-    pub fn toggle_global(&mut self) -> bool
-
-    /// 特定ディスプレイのON/OFFをトグルし、新しい enabled を返す
-    pub fn toggle_display(&mut self, id: &MonitorId) -> bool
-
-    /// 特定ディスプレイのAlpha値を設定する（0.0〜1.0 にクランプ）
-    pub fn set_alpha(&mut self, id: &MonitorId, alpha: f32)
-
-    /// あるディスプレイを実際に描画すべきか判定する
-    /// global_enabled && displays[id].enabled の両方が true のときのみ true
-    pub fn is_visible(&self, id: &MonitorId) -> bool
-
-    /// 新規ディスプレイ追加時に DisplayConfig を登録する
-    /// すでに同IDが存在する場合は何もしない（再接続時は keep_or_restore を使う）
-    pub fn add_display(&mut self, id: MonitorId, config: Option<DisplayConfig>)
-
-    /// ディスプレイ切断時にマップから除去し、設定を返す（再接続時の引き継ぎ用）
-    pub fn remove_display(&mut self, id: &MonitorId) -> Option<DisplayConfig>
-
-    /// 全ディスプレイがONかどうか（トレイのグローバルチェックマーク表示用）
-    pub fn all_displays_enabled(&self) -> bool
-}
-```
-
-**実装方針:**
-- `AppState` 自体はロジックのみを持ち、ウィンドウ操作は `overlay.rs` が担う
-- `global_enabled = false` のとき `is_visible()` は常に `false` を返し、個別設定を上書きする
-- `Rc<RefCell<AppState>>` でイベントループクロージャにキャプチャする
-
----
-
-### 6.3 overlay.rs　─ オーバーレイウィンドウ管理
-
-**責務:** 各ディスプレイへのウィンドウ生成・フィルター描画・ホットプラグ時の追加/削除。
-
-```rust
-use crate::display_config::MonitorId;
-
-pub struct OverlayWindow {
-    pub monitor_id: MonitorId,            // このウィンドウが属するディスプレイのID
-    pub monitor_name: String,             // OS から取得したディスプレイ名（トレイメニュー表示用）
-    pub window: tao::window::Window,
-    surface: softbuffer::Surface<...>,
-}
-
-impl OverlayWindow {
-    /// ディスプレイ1枚に対応したオーバーレイウィンドウを生成し、
-    /// プラットフォーム固有の設定（クリック透過・最前面）を適用する
-    pub fn new(
-        event_loop: &EventLoop<()>,
-        monitor: &MonitorHandle,
-    ) -> Result<Self, OverlayError>
-
-    /// フレームバッファに alpha 値付きの黒を塗りつぶして描画する
-    pub fn draw(&mut self, alpha: u8) -> Result<(), OverlayError>
-
-    /// ウィンドウの表示・非表示を切り替える
-    pub fn set_visible(&self, visible: bool)
-
-    /// alpha 値を変更して即座に再描画する
-    pub fn update_alpha(&mut self, alpha: u8) -> Result<(), OverlayError>
-}
-
-/// 全ディスプレイのオーバーレイを一括生成する
-pub fn create_all(
-    event_loop: &EventLoop<()>,
-    monitors: &[MonitorHandle],
-) -> Vec<OverlayWindow>
-
-/// ホットプラグ：新規ディスプレイのオーバーレイを追加生成してVecに追加する
-/// 戻り値: 追加した OverlayWindow の monitor_id
-pub fn add_display(
-    overlays: &mut Vec<OverlayWindow>,
-    event_loop: &EventLoop<()>,
-    monitor: &MonitorHandle,
-    visible: bool,
-    alpha: u8,
-) -> Result<MonitorId, OverlayError>
-
-/// ホットプラグ：切断されたディスプレイのオーバーレイを Vec から削除する
-pub fn remove_display(
-    overlays: &mut Vec<OverlayWindow>,
-    id: &MonitorId,
-)
-
-/// AppState を参照して全ウィンドウの表示状態・Alpha値を一括同期する
-pub fn sync_all(overlays: &mut Vec<OverlayWindow>, state: &AppState)
-```
-
-**実装方針:**
-- `monitor_id` は `platform::get_monitor_id(&monitor)` で取得する（OS固有の数値をラップ）
-- `monitor_name` は `monitor.name()` から取得し、`None` の場合は `"Display N"` とする
-- ホットプラグ検知は `platform/` モジュールが行い、`main.rs` のイベントループへカスタムイベントとして通知する（後述 §6.9）
-- `sync_all` は設定変更のたびに呼ぶことで、`AppState` との乖離を防ぐ
-
----
-
-### 6.4 tray.rs　─ トレイ / メニューバー UI
-
-**責務:** アイコン表示・コンテキストメニューのセットアップと、ディスプレイ別サブメニューの動的再構築。
-
-```rust
-pub const MENU_ID_GLOBAL_TOGGLE:   &str = "global_toggle";
-pub const MENU_ID_DISPLAY_TOGGLE:  &str = "display_toggle:";  // suffix: MonitorId文字列
-pub const MENU_ID_QUIT:            &str = "quit";
-
-pub struct TrayHandle {
-    _icon: tray_icon::TrayIcon,
-    menu: muda::Menu,   // 再構築のため保持
-}
-
-impl TrayHandle {
-    /// トレイアイコンと初期メニューを生成して返す
-    pub fn new(state: &AppState, overlays: &[OverlayWindow]) -> Result<Self, TrayError>
-
-    /// ディスプレイ構成の変化（ホットプラグ等）に応じてメニュー全体を再構築する
-    pub fn rebuild_menu(&self, state: &AppState, overlays: &[OverlayWindow])
-
-    /// グローバルチェックマークのみを更新する（ホットプラグなしのトグル操作用）
-    pub fn update_global_check(&self, all_enabled: bool)
-
-    /// 特定ディスプレイのチェックマークを更新する
-    pub fn update_display_check(&self, id: &MonitorId, enabled: bool)
-}
-```
-
-**メニュー構成（`muda` で構築）:**
-
-```
-[✓] フィルター：すべてオン               ← MENU_ID_GLOBAL_TOGGLE
-──────────────────────────────────────
-ディスプレイ設定 ▶ （Submenu）
-  [✓] Built-in Display (2560×1600)     ← MENU_ID_DISPLAY_TOGGLE:"0x1a2b3c"
-  [✓] DELL U2723D (2560×1440)          ← MENU_ID_DISPLAY_TOGGLE:"0x4d5e6f"
-──────────────────────────────────────
-Softveil を終了                    ← MENU_ID_QUIT
-```
-
-**実装方針:**
-- `MENU_ID_DISPLAY_TOGGLE` の suffix として `MonitorId` を文字列化したものを付与し、受信側でパースしてどのディスプレイか判定する
-- ホットプラグ発生時は `rebuild_menu()` を呼び出してサブメニュー全体を差し替える
-- `muda` のメニュー項目は `CheckMenuItem` を使い、`set_checked()` でチェックマークを更新する
-
----
-
-### 6.5 hotkey.rs　─ グローバルショートカット
-
-**責務:** `global-hotkey` によるキー登録と、別スレッドでのイベント受信。
-
-```rust
-/// グローバルショートカットを登録し、キーが押されるたびに
-/// `tx` にユニットを送信するスレッドを起動する。
-/// 戻り値の `HotkeyGuard` を drop するとスレッドが停止し登録が解除される。
-pub fn register(tx: mpsc::Sender<HotkeyEvent>) -> Result<HotkeyGuard, HotkeyError>
-
-pub enum HotkeyEvent {
-    ToggleFilter,
-}
-
-pub struct HotkeyGuard {
-    _manager: GlobalHotKeyManager,  // drop で登録解除
-}
-```
-
-**実装方針:**
-- キーコード: macOS = `Modifiers::SUPER | Modifiers::SHIFT + Code::KeyP`、Windows = `Modifiers::CONTROL | Modifiers::SHIFT + Code::KeyP`
-- `GlobalHotKeyEvent::receiver()` をスレッド内でブロッキング受信し、`tx.send()` でメインループに通知する
-- macOS では初回起動時にアクセシビリティ権限ダイアログが出る。ユーザーへの案内はトレイメニューの Tooltip に文言を入れる方針（→ 未解決事項 #2）
-
----
-
-### 6.6 single_instance.rs　─ 多重起動防止
-
-**責務:** 2つ目以降のプロセス起動を検知して即座に終了させる。
-
-```rust
-/// 多重起動チェックを行い、ロックを取得して `SingleInstanceGuard` を返す。
-/// すでに起動中であれば `Err(AlreadyRunning)` を返す。
-/// `SingleInstanceGuard` を drop するとロックが解放される。
-pub fn acquire() -> Result<SingleInstanceGuard, SingleInstanceError>
-
-pub struct SingleInstanceGuard {
-    // macOS: ロックファイルの File ハンドル（drop で unlock）
-    // Windows: HANDLE（drop で CloseHandle）
-    inner: PlatformGuard,
-}
-```
-
-**macOS 実装:**
-- `$TMPDIR/softveil.lock` に `O_CREAT | O_EXCL` でファイル作成（アトミック）
-- `flock(LOCK_EX | LOCK_NB)` でロック取得。失敗（`EWOULDBLOCK`）なら既起動と判断
-- `Drop` で `flock(LOCK_UN)` とファイル削除
-
-**Windows 実装:**
-- `CreateMutexW(NULL, TRUE, "Local\\SoftveilMutex")` で名前付きミューテックス作成
-- `GetLastError() == ERROR_ALREADY_EXISTS` なら既起動と判断
-- `Drop` で `ReleaseMutex` / `CloseHandle`
-
----
-
-### 6.7 platform/macos.rs　─ macOS 固有処理
-
-**責務:** `objc2` 経由で `NSWindow` に macOS 固有のウィンドウプロパティを設定する。
-
-```rust
-/// ウィンドウに以下をまとめて適用する:
-///   - ignoringMouseEvents = true（クリック透過）
-///   - backgroundColor = クリア（softbuffer の描画を透過させる）
-///   - level = NSStatusWindowLevel + 1（常時最前面）
-///   - collectionBehavior に .canJoinAllSpaces | .stationary を追加（Spaces 対応）
-pub fn apply_overlay_settings(window: &tao::window::Window)
-
-/// ウィンドウレベルを定数で返す。フルスクリーン対応の検証結果に応じて変更する。
-/// 現在値: NSStatusWindowLevel (25)
-/// 候補値: kCGScreenSaverWindowLevel (1000) ─ フルスクリーンアプリの上に出たい場合
-pub fn overlay_window_level() -> i64
-```
-
-**実装方針:**
-- `raw-window-handle` の `HasWindowHandle::window_handle()` から `AppKitWindowHandle` を取り出し、`NSWindow` ポインタを unsafe で取得する
-- `objc2-app-kit` の型付き API を使い、できる限り unsafe ブロックを最小化する
-- `collectionBehavior` に `.canJoinAllSpaces` を追加することで、macOS の全 Space（仮想デスクトップ）でフィルターが表示されるようにする
-
----
-
-### 6.8 platform/windows.rs　─ Windows 固有処理
-
-**責務:** `windows-sys` 経由で `HWND` に Windows 固有のウィンドウスタイルを設定する。
-
-```rust
-/// HWND に以下をまとめて適用する:
-///   - WS_EX_TRANSPARENT | WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW を付与
-///   - SetLayeredWindowAttributes で Alpha = 指定値 を設定
-///   - SetWindowPos で HWND_TOPMOST に配置
-pub fn apply_overlay_settings(window: &tao::window::Window, alpha: u8)
-
-/// 既存の拡張スタイルに追加フラグを OR で合成して SetWindowLongPtrW を呼ぶ
-fn set_ex_style(hwnd: HWND, additional_flags: u32)
-```
-
-**実装方針:**
-- `raw-window-handle` の `Win32WindowHandle` から `HWND` を取り出す
-- すべての Win32 API 呼び出しは `unsafe` ブロックに集約し、呼び出し元から unsafe を隠蔽する
-- `WS_EX_TRANSPARENT` だけでは管理者権限ウィンドウの前面で透過しない場合があるが、MVP では対応しない（→ 未解決事項 #6）
-- `SetLayeredWindowAttributes` の `dwFlags` には `LWA_ALPHA` を使用し、`LWA_COLORKEY` は使用しない
-
----
-
-### 6.9 display_config.rs　─ ディスプレイ別設定
-
-**責務:** ディスプレイ1枚分の設定値の保持と、再接続時の設定引き継ぎロジック。
-
-```rust
-/// プラットフォーム固有のモニター識別子をラップした型
-/// macOS: CGDirectDisplayID (u32)
-/// Windows: HMONITOR (isize)
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct MonitorId(pub u64);
-
-impl MonitorId {
-    /// MonitorHandle からプラットフォーム固有IDを取り出して生成する
-    pub fn from_monitor(monitor: &MonitorHandle) -> Self
-    pub fn to_string(&self) -> String  // トレイメニューIDへの埋め込み用
-}
-
-/// ディスプレイ1枚の設定
-#[derive(Debug, Clone)]
-pub struct DisplayConfig {
-    pub enabled: bool,             // このディスプレイのフィルターON/OFF
-    pub alpha: f32,                // フィルター濃度（0.0〜1.0）
-    /// 再接続時の設定引き継ぎに使うヒューリスティックキー
-    /// 値: "{x}_{y}_{width}_{height}" 形式の文字列
-    pub position_key: String,
-}
-
-impl DisplayConfig {
-    pub fn default() -> Self        // enabled=true, alpha=0.30
-    pub fn alpha_u8(&self) -> u8   // (alpha * 255.0).round() as u8
-
-    /// 位置・解像度から position_key を生成する
-    pub fn make_position_key(pos: PhysicalPosition<i32>, size: PhysicalSize<u32>) -> String
-}
-
-/// 切断済みディスプレイの設定キャッシュ（再接続時の引き継ぎ用）
-/// キー: position_key、値: DisplayConfig
-pub struct DisconnectedCache {
-    cache: HashMap<String, DisplayConfig>,
-}
-
-impl DisconnectedCache {
-    pub fn new() -> Self
-
-    /// 切断時に設定を保存する
-    pub fn store(&mut self, config: DisplayConfig)
-
-    /// 再接続時に position_key でマッチする設定を取り出す（取り出したらキャッシュから削除）
-    pub fn restore(&mut self, position_key: &str) -> Option<DisplayConfig>
-}
-```
-
-**実装方針:**
-- `MonitorId` は `Hash + Eq` を実装し `HashMap` のキーとして使えるようにする
-- 再接続時の設定引き継ぎは「同一の `position_key`」を条件とする。同じ座標・解像度で再接続した場合のみ引き継ぐ。それ以外はデフォルト値を適用する
-- `DisconnectedCache` のエントリ数は最大 8 件に制限し、古いものから削除するLRU方式とする
-
----
-
-### 6.10 platform/macos.rs　─ ホットプラグ検知（macOS）
-
-**追加責務:** `NSApplicationDidChangeScreenParametersNotification` を監視してディスプレイ変化を検知する。
-
-```rust
-/// NSNotificationCenter に画面変更通知のオブザーバーを登録する。
-/// 変化が発生したら tx にイベントを送信する。
-/// 戻り値の Guard を drop するとオブザーバーが解除される。
-pub fn register_hotplug_observer(tx: mpsc::Sender<DisplayChangeEvent>) -> HotplugGuard
-
-pub enum DisplayChangeEvent {
-    /// 現在接続されているモニター一覧が変化した（追加・削除どちらの場合も同じイベント）
-    ScreenParametersChanged,
-}
-```
-
-**実装方針:**
-- `NSNotificationCenter.defaultCenter()` に `NSApplicationDidChangeScreenParametersNotification` を登録する
-- 通知を受けたら `tx.send(DisplayChangeEvent::ScreenParametersChanged)` を呼ぶ
-- `main.rs` のイベントループで `rx.try_recv()` し、受信時に `event_loop.available_monitors()` と現在の `overlays` の差分を計算して追加/削除を行う
-
----
-
 ### 6.11 platform/windows.rs　─ ホットプラグ検知（Windows）
 
-**追加責務:** `WM_DISPLAYCHANGE` メッセージを受信してディスプレイ変化を検知する。
-
-```rust
-/// tao の WindowEvent::Occluded 等ではなく WM_DISPLAYCHANGE を直接処理するため、
-/// サブクラス化（SetWindowSubclass）またはメッセージフックを設定する。
-/// 変化が発生したら tx にイベントを送信する。
-pub fn register_display_change_hook(
-    hwnd: HWND,
-    tx: mpsc::Sender<DisplayChangeEvent>,
-) -> HotplugGuard
-
-pub enum DisplayChangeEvent {
-    DisplayChanged,
-}
-```
-
-**実装方針:**
-- `tao` は `WM_DISPLAYCHANGE` を直接 `Event` として露出しないため、`SetWindowSubclass` でウィンドウプロシージャをサブクラス化して受信する
-- macOS と同様、受信時に `event_loop.available_monitors()` と現在の `overlays` の差分を計算する
-- サブクラス化対象は最初のオーバーレイウィンドウの HWND を使用する
-
----
-
-## 7. システム設計・アーキテクチャ
-
-### 7.1 コンポーネント構成
-
-```
-┌──────────────────────────────────────────────────────────────────┐
-│                       main.rs                                    │
-│  初期化オーケストレーション / tao イベントループ                  │
-│                                                                  │
-│  ┌─────────────────┐  ┌──────────────────────┐  ┌────────────┐  │
-│  │ single_instance │  │       app.rs         │  │ hotkey.rs  │  │
-│  │ 多重起動防止    │  │  AppState            │  │ HotKey 監視│  │
-│  └─────────────────┘  │  ├ global_enabled    │  └─────┬──────┘  │
-│                        │  └ displays: HashMap │        │ mpsc    │
-│  ┌─────────────────┐  │    MonitorId →       │  ┌─────▼──────┐  │
-│  │display_config.rs│◀─┤    DisplayConfig     │  │ (チャネル) │  │
-│  │ MonitorId       │  └──────────┬───────────┘  └─────┬──────┘  │
-│  │ DisplayConfig   │             │ sync_all()          │         │
-│  │ DisconnectedCache│  ┌─────────▼─────────────────────▼──────┐  │
-│  └─────────────────┘  │          overlay.rs                   │  │
-│                        │   OverlayWindow × N 枚               │  │
-│                        │   monitor_id / softbuffer 描画        │  │
-│                        │   add_display / remove_display        │  │
-│                        └───────────────────────────────────────┘  │
-│                                                                  │
-│  ┌──────────────────────────────────────────────────────────────┐ │
-│  │          tray.rs                                             │ │
-│  │   TrayHandle（tray-icon + muda）                            │ │
-│  │   ・グローバルトグル  ・ディスプレイ別サブメニュー           │ │
-│  │   ・rebuild_menu() でホットプラグ時に再構築                  │ │
-│  └──────────────────────────────────────────────────────────────┘ │
-└─────────────────────────────────┬────────────────────────────────┘
-                                  │  OS ネイティブ API
-                   ┌──────────────┴──────────────┐
-          ┌────────▼────────┐          ┌──────────▼──────────┐
-          │ platform/       │          │ platform/           │
-          │ macos.rs        │          │ windows.rs          │
-          │ NSWindow 操作   │          │ HWND 操作           │
-          │ ScreenParams    │          │ WM_DISPLAYCHANGE    │
-          │ Notification    │          │ サブクラス化        │
-          └─────────────────┘          └─────────────────────┘
-```
-
-### 7.2 起動フロー
-
-```
-.app / .exe ダブルクリック
-        │
-        ▼
-single_instance::acquire()
-        │ Err → 既に起動中 → process::exit(0)
-        │ Ok
-        ▼
-EventLoop::new()  +  mpsc チャネル × 2 生成
-  (hotkey_tx/rx, display_change_tx/rx)
-        │
-        ▼
-hotkey::register(hotkey_tx)         ← 別スレッドでキー監視開始
-        │
-        ▼
-overlay::create_all(monitors)
-        │ 各ディスプレイに OverlayWindow を生成
-        │ platform::apply_overlay_settings() で透過・最前面を設定
-        │ draw(alpha) でフィルターを初期描画
-        │ AppState に各 MonitorId を登録
-        │
-        ▼
-platform::register_hotplug_observer(display_change_tx)
-        │                           ← ディスプレイ変化の通知を登録
-        ▼
-tray::TrayHandle::new(&state, &overlays)
-        │
-        ▼
-event_loop.run(|event, elwt, flow| {
-
-    // ① トレイ・メニューイベント処理
-    MenuEvent::receiver().try_recv() {
-        MENU_ID_GLOBAL_TOGGLE  → state.toggle_global() → overlay::sync_all()
-                                 → tray.update_global_check()
-        MENU_ID_DISPLAY_TOGGLE → id をパース → state.toggle_display(id)
-                                 → overlay 該当ウィンドウ.set_visible()
-                                 → tray.update_display_check(id)
-        MENU_ID_QUIT           → 終了シーケンスへ
-    }
-
-    // ② ホットキーイベント処理
-    hotkey_rx.try_recv() → MENU_ID_GLOBAL_TOGGLE と同じ処理
-
-    // ③ ホットプラグイベント処理
-    display_change_rx.try_recv() {
-        DisplayChangeEvent → 現在の available_monitors() を取得
-                           → overlays にない ID → add_display()
-                                               → DisconnectedCache.restore() or default
-                                               → AppState.add_display()
-                           → available_monitors() にない ID → remove_display()
-                                                            → AppState.remove_display()
-                                                            → DisconnectedCache.store()
-                           → tray.rebuild_menu(&state, &overlays)
-    }
-
-    // ④ 終了処理
-    overlays drop → tray drop → _single_instance_guard drop → flow.set_exit()
-})
-```
-
-### 7.3 スレッド構成
-
-```
-┌─────────────────────────────────────┐
-│  メインスレッド                      │
-│  tao イベントループ                   │
-│  ・ウィンドウ生成・描画               │
-│  ・トレイイベント処理                 │
-│  ・ホットキー受信（hotkey_rx）        │
-│  ・ホットプラグ受信（display_rx）     │
-└──────┬──────────────────────┬────────┘
-       │ mpsc::Sender          │ mpsc::Sender
-       │ <HotkeyEvent>         │ <DisplayChangeEvent>
-┌──────▼──────────┐   ┌────────▼────────────────┐
-│ ホットキー       │   │ ホットプラグ監視スレッド  │
-│ 監視スレッド    │   │ macOS: NSNotification    │
-│ GlobalHotKey    │   │ Windows: SetWindowSubclass│
-│ receiver()      │   │ → tx.send()              │
-└─────────────────┘   └──────────────────────────┘
-```
-
-### 7.4 macOS 固有実装詳細
-
-1. `tao` でボーダーレス・透過ウィンドウを生成する
-2. `raw-window-handle` から `NSWindow` のポインタを取得する
-3. `ignoringMouseEvents = true` でクリックを透過させる
-4. `setBackgroundColor(NSColor.clear)` でウィンドウ背景を透明にする
-5. `setLevel(NSStatusWindowLevel + 1)` で最前面に固定する
-6. `collectionBehavior = .canJoinAllSpaces | .stationary` で全 Space に表示させる
-7. `softbuffer` のフレームバッファに ARGB `0x4C000000` を塗りつぶして描画する
-8. `NSApplicationDidChangeScreenParametersNotification` を `NSNotificationCenter` に登録してホットプラグを検知する
-
-> **注意:** `NSStatusWindowLevel` より上のレベルに設定すると、フルスクリーンアプリに隠れる場合がある（→ 未解決事項 #3）
-
-### 7.5 Windows 固有実装詳細
-
-1. `tao` でボーダーレス・透過ウィンドウを生成する
-2. `raw-window-handle` から `HWND` を取得する
-3. `GetWindowLongPtrW(GWL_EXSTYLE)` で現在のスタイルを取得する
-4. `SetWindowLongPtrW` で `WS_EX_TRANSPARENT | WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW` を付与する
-5. `SetLayeredWindowAttributes(hwnd, 0, alpha, LWA_ALPHA)` で透明度を設定する
-6. `SetWindowPos(hwnd, HWND_TOPMOST, ...)` で最前面に固定する
-7. `SetWindowSubclass` で最初のオーバーレイウィンドウのプロシージャをサブクラス化し、`WM_DISPLAYCHANGE` を受信してホットプラグを検知する
-
-> **注意:** `WS_EX_NOACTIVATE` を付与することで、フィルターをクリックしてもフォーカスが奪われなくなる（→ 未解決事項 #6）
-
----
-
-## 8. 非機能要件
-
-| 要件 | 目標値 |
-|------|-------|
-| 起動時間 | 2秒以内（フィルター表示開始まで） |
-| CPU使用率 | アイドル時 1% 以下（静的フィルターのため再描画なし） |
-| メモリ使用量 | 50MB 以下 |
-| バイナリサイズ | 10MB 以下（リリースビルド、`strip = true`） |
-
----
-
-## 9. 未解決事項 / Known Issues
-
-| # | 状態 | 項目 | 内容 | 優先度 |
-|---|------|------|------|-------|
-| 1 | ✅ 解決済 | ~~ウィンドウライブラリ選定~~ | → **`tao` に決定** | ― |
-| 2 | 🔲 未着手 | macOS アクセシビリティ権限 | グローバルショートカットの初回起動時に表示されるダイアログの案内文言を決定する | 中 |
-| 3 | 🔲 未着手 | macOS フルスクリーン対応 | `NSStatusWindowLevel + 1` でフルスクリーンアプリの上にも表示できるか検証が必要 | 中 |
-| 4 | 🔲 未着手 | 配布形式（macOS） | `.app` バンドル直配布か `.dmg` か。公証なしだと Gatekeeper 警告が出る | 中 |
-| 5 | 🔲 未着手 | 配布形式（Windows） | `.exe` 単体か MSI インストーラーか | 中 |
-| 6 | 🔲 未着手 | Windows UAC との兼用 | 管理者権限ウィンドウの前面に出せるか | 低 |
-| 7 | 🔲 未着手 | コード署名 / 公証 | 配布を想定するなら Apple / Microsoft の署名が必要 | MVP外 |
-
-> **運用ルール**: 実装中に発生した問題・判断はこのテーブルに追記し、DEVLOG.md に詳細を記録する。解決済みの項目は状態を ✅ に更新し、対応 commit / DEVLOG エントリへのリンクを備考に追記する。
-
----
-
-## 10. 今後の拡張プラン
-
-### 10.1 Ver 2.0
-
-- 濃度スライダー UI（`AppState.alpha` を活用）
-- 縦縞ルーバーパターン描画（`tiny-skia` 追加）
-- プリセット保存（`confy` クレート等で設定ファイル永続化）
-- ログイン時自動起動（macOS: `LaunchAgent`、Windows: レジストリ）
-
-### 10.2 Ver 3.0
-
-- 内蔵カメラで背後の顔を検知したら自動でフィルターを濃くする AI 覗き見検知
-- カメラ映像はローカル処理のみ（`tract` クレート + ONNX モデル）
+**実装詳細:**
+- 専用のスレッドで不可視のウィンドウ（Hidden Window）を作成し、メッセージループを回す
+- システムワイドにブロードキャストされる `WM_DISPLAYCHANGE` メッセージをこの隠しウィンドウで捕捉する
+- 通知を受けたら `mpsc` チャネルを通じてメインスレッドのイベントループへ `DisplayChangeEvent` を送信する
+- アプリケーション終了時は `PostMessageW(hwnd, WM_CLOSE, 0, 0)` を送り、スレッドをクリーンに終了させる
 
 ---
 
 ## 11. 開発ロードマップ
 
 ```
-Phase 0 (プロトタイプ)
- └─ macOS で半透明・クリック透過のフルスクリーンウィンドウを表示
+Phase 0-3 (完了)
+ ✅ プロトタイプ、MVP、Ver 2.0 拡張、AI 覗き見検知
 
-Phase 1 (MVP)
- ├─ .app / .exe ダブルクリック起動
- ├─ メニューバー（macOS）/ システムトレイ（Windows）常駐
- ├─ コンテキストメニューでのフィルター ON/OFF・終了
- ├─ グローバルショートカットによる ON/OFF
- └─ Windows クロスコンパイル対応・マルチディスプレイ対応
-
-Phase 2
- ├─ 濃度スライダー UI
- ├─ プリセット保存
- └─ ログイン時自動起動オプション
-
-Phase 3
- └─ AI 覗き見検知
-
-Phase 4
- ├─ Windows 実機検証・ホットプラグ実装
- ├─ GitHub Actions による自動ビルド (CI) 構築
- └─ ✅ アイコン素材の正式生成 (SVGからの自動変換)
+Phase 4 (実装完了)
+ ├─ ✅ Windows ホットプラグ実装（隠しウィンドウ方式）
+ ├─ ✅ アイコン素材の正式生成・埋め込み
+ ├─ ✅ GitHub Actions による CI/CD 構築
+ └─ 🔲 Windows 実機検証（継続中）
 ```
-
----
-
-## 付録：用語集
-
-| 用語 | 説明 |
-|------|------|
-| ルーバー | 細い羽板を等間隔に並べたブラインド状のフィルター。正面からは見えるが斜めからは遮光される |
-| クリック透過 | ウィンドウがマウスイベントをキャプチャせず、背後のウィンドウへ伝達する動作 |
-| HWND | Windows のウィンドウハンドル。Win32 API でウィンドウを識別する整数値 |
-| HMONITOR | Windows のモニターハンドル。接続ディスプレイを識別する整数値 |
-| NSWindow | macOS の Cocoa フレームワークにおけるウィンドウクラス |
-| CGDirectDisplayID | macOS のディスプレイ識別子（`u32`）。接続・切断をまたいで同一性が保証される |
-| MonitorId | 本アプリ内でプラットフォーム固有のモニター識別子を統一的に扱うラッパー型 |
-| ホットプラグ | PCの稼働中にディスプレイを接続・切断する操作 |
-| position_key | ディスプレイの位置と解像度から生成した文字列キー。切断後の再接続時に設定を引き継ぐために使用する |
-| DisconnectedCache | 切断済みディスプレイの設定を一時保存するキャッシュ。再接続時の設定復元に使用する |
-| WS_EX_TRANSPARENT | Windows 拡張ウィンドウスタイル。マウスイベントを透過させる |
-| WS_EX_LAYERED | Windows 拡張ウィンドウスタイル。半透明・色キー合成を有効にする |
-| WS_EX_TOOLWINDOW | Windows 拡張ウィンドウスタイル。タスクバーへのボタン表示を抑制する |
-| WS_EX_NOACTIVATE | Windows 拡張ウィンドウスタイル。クリック時にフォーカスを奪わない |
-| WM_DISPLAYCHANGE | Windows メッセージ。ディスプレイの接続・解像度変更時にウィンドウプロシージャへ送られる |
-| HWND_TOPMOST | `SetWindowPos` に渡すフラグ。常時最前面表示を指定する |
-| LSUIElement | macOS の `Info.plist` キー。`true` にすると Dock およびアプリスイッチャーへの表示を抑制する |
-| collectionBehavior | macOS のウィンドウが複数の Space / フルスクリーンにどう振る舞うかを制御するプロパティ |
-| NSApplicationDidChangeScreenParametersNotification | macOS のディスプレイ構成変化を通知する NSNotification 名 |
-| システムトレイ | Windows の通知領域（タスクバー右端）。常駐アプリのアイコンを置く場所 |
-| メニューバー | macOS 画面上端のバー。常駐アプリはここにアイコンを置く |
-| LWA_ALPHA | `SetLayeredWindowAttributes` のフラグ。Alpha 値でウィンドウ全体の透明度を指定する |
-
----
-
-## 12. 設計哲学
-
-- **ゼロ UI 哲学**: ユーザーはフィルターが「そこにいる」ことを意識しない。常駐するが邪魔しない
-- **フラットな構造**: モジュールの深い入れ子を避ける。`src/` 直下＋ `platform/` の2階層に収める
-- **プラットフォーム差分の局所化**: OS固有コードは `platform/macos.rs` / `platform/windows.rs` のみに閉じ込め、呼び出し元は共通インターフェース経由でのみアクセスする
-- **パニック時の後始末**: `std::panic::set_hook` でトレイアイコンの残存を防ぐ
-- **再描画しない**: フィルターは静的な単色レイヤーであり、アイドル時の再描画は一切行わない。CPU使用率 1% 以下を維持する
-- **クリーンルーム実装**: コードはすべてオリジナル。ユーザーが唯一の著作権者となる
-
----
-
-## 13. 非設計事項（将来も実装しない）
-
-- ウィンドウ単位のフィルター（アプリ全体のオーバーレイのみ）
-- 音声・動画の録画抑止（OS レベルの DRM と競合するため）
-- プラグインシステム
-- ネットワーク通信・テレメトリ
