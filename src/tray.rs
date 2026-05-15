@@ -27,7 +27,7 @@ impl TrayHandle {
         } else {
             include_bytes!("../assets/icon_windows.ico").as_slice()
         };
-
+        
         let img = image::load_from_memory(icon_bytes).map_err(|e| TrayError::IconError(e.to_string()))?;
         let rgba = img.to_rgba8();
         let (width, height) = rgba.dimensions();
