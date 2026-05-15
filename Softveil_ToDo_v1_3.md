@@ -39,11 +39,11 @@
 
 ## Phase 4：Windows 完備・正式ビルド 🪟🔁
 
-### STEP 4-1　Windows ホットプラグの実装 🪟
-- [ ] `src/platform/windows.rs` の `register_display_change_hook` を実装
-    - [ ] 隠しウィンドウまたは既存オーバーレイのサブクラス化 (`SetWindowSubclass`) により `WM_DISPLAYCHANGE` を捕捉
-    - [ ] `display_change_tx` 経由でメインループへ通知
-- [ ] Windows 実機でディスプレイ抜き差し時の追従を確認
+### STEP 4-1　Windows ホットプラグの実装 🪟 ✅
+- [x] `src/platform/windows.rs` の `register_display_change_hook` を実装
+    - [x] 隠しウィンドウにより `WM_DISPLAYCHANGE` を捕捉
+    - [x] `display_change_tx` 経由でメインループへ通知
+- [ ] Windows 実機でディスプレイ抜き差し時の追従を確認（実機検証待ち）
 
 ### STEP 4-2　アイコン素材の正式生成と組み込み 🔁 ✅
 - [x] `assets/softveil_icon.svg` からマルチサイズ PNG を生成するスクリプトを作成
