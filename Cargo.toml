@@ -1,0 +1,56 @@
+[package]
+name = "softveil"
+version = "0.1.0"
+edition = "2021"
+description = "Software privacy filter for macOS and Windows"
+
+[[bin]]
+name = "softveil"
+path = "src/main.rs"
+
+[dependencies]
+# ── ウィンドウ管理・イベントループ ──────────────────────────────
+tao = { version = "0.30", features = ["rwh_06"] }
+
+# ── システムトレイ / メニューバー ───────────────────────────────
+tray-icon = "0.19"
+muda       = "0.15"
+
+# ── グローバルショートカット ────────────────────────────────────
+global-hotkey = "0.6"
+
+# ── 2D 描画（フィルター塗りつぶし）────────────────────────────
+softbuffer = "0.4"
+image      = "0.25"
+
+# ── 設定・永続化 ──────────────────────────────────────────
+confy = "0.6"
+serde = { version = "1.0", features = ["derive"] }
+auto-launch = "0.5"
+
+# ── macOS ネイティブ API ────────────────────────────────────────
+[target.'cfg(target_os = "macos")'.dependencies]
+libc              = "0.2"
+objc2             = "0.6"
+objc2-app-kit     = { version = "0.3", features = ["NSWindow", "NSColor", "NSScreen"] }
+objc2-foundation  = { version = "0.3", features = ["NSString", "NSNotification"] }
+block2            = "0.6"
+core-graphics     = { version = "0.24", features = ["highsierra"] }
+
+# ── Windows ネイティブ API ─────────────────────────────────────
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_Graphics_Gdi",
+    "Win32_System_Threading",
+] }
+
+[profile.release]
+opt-level     = 3
+lto           = true
+codegen-units = 1
+strip         = true
+
+[build-dependencies]
+winres = "0.1"
