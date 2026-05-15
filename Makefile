@@ -13,8 +13,9 @@ help:
 	@echo "  make clean   Remove build artifacts"
 
 mac:
-	@echo "Building for macOS..."
-	./scripts/bundle_macos.sh
+	@echo "Building for macOS (Apple Silicon)..."
+	@cargo build --release --target aarch64-apple-darwin
+	@./scripts/bundle_macos.sh
 
 win:
 	@echo "Building for Windows..."
