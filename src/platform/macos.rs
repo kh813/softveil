@@ -22,16 +22,18 @@ pub fn apply_overlay_settings(window: &Window, alpha: u8) {
         ns_window.setIgnoresMouseEvents(true);
         ns_window.setBackgroundColor(Some(&NSColor::clearColor()));
         
-        // ScreenSaverWindowLevel = 1000. This ensures the overlay stays above 
-        // almost everything, including most fullscreen transitions.
-        ns_window.setLevel(1000); 
+        // Set a very high level to stay above system transitions and spaces.
+        ns_window.setLevel(10000); 
         
         ns_window.setCollectionBehavior(
             NSWindowCollectionBehavior::CanJoinAllSpaces |
             NSWindowCollectionBehavior::Stationary |
-            NSWindowCollectionBehavior::FullScreenAuxiliary
+            NSWindowCollectionBehavior::FullScreenAuxiliary |
+            NSWindowCollectionBehavior::IgnoresCycle
         );
 
+        ns_window.setHidesOnDeactivate(false);
+        ns_window.setAnimationBehavior(objc2_app_kit::NSWindowAnimationBehavior::None);
         ns_window.setOpaque(false);
         ns_window.setHasShadow(false);
         

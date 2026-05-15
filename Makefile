@@ -14,8 +14,9 @@ help:
 
 mac:
 	@echo "Building for macOS (Apple Silicon)..."
-	@cargo build --release --target aarch64-apple-darwin
-	@./scripts/bundle_macos.sh
+	cargo build --release --target aarch64-apple-darwin
+	./scripts/bundle_macos.sh
+
 
 win:
 	@echo "Building for Windows..."

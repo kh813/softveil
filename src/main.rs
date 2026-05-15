@@ -239,7 +239,7 @@ fn main() {
             new_ids.sort();
 
             if existing_ids != new_ids {
-                println!("Display configuration changed. Recalculating...");
+                println!("Display configuration changed. Recalculating... Current IDs: {:?}, New IDs: {:?}", existing_ids, new_ids);
                 
                 let mut removed_ids = Vec::new();
                 for overlay in &overlays {
@@ -283,6 +283,8 @@ fn main() {
                     t.rebuild_menu(&state, &overlays);
                 }
                 state.save();
+            } else {
+                println!("Hotplug event received but ignored (monitor IDs match).");
             }
         }
 
