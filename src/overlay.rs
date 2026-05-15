@@ -1,11 +1,12 @@
 use crate::display_config::MonitorId;
-use crate::app::AppState;
+use crate::app::{AppState, FilterMode};
 use crate::platform;
 use tao::event_loop::EventLoopWindowTarget;
 use tao::monitor::MonitorHandle;
 use tao::window::{Window, WindowBuilder};
 use softbuffer::{Context, Surface};
 use std::num::NonZeroU32;
+use tiny_skia::{Pixmap, Paint, Rect, Color};
 
 pub struct OverlayWindow {
     pub monitor_id: MonitorId,
@@ -54,10 +55,12 @@ impl OverlayWindow {
         })
     }
 
-    pub fn draw(&mut self, _alpha: u8) -> Result<(), OverlayError> {
+    pub fn draw(&mut self, state: &AppState, _alpha: u8) -> Result<(), OverlayError> {
         let size = self.window.inner_size();
-        let width = NonZeroU32::new(size.width.max(1)).unwrap();
-        let height = NonZeroU32::new(size.height.max(1)).unwrap();
+        let width_u32 = size.width.max(1);
+        let height_u32 = size.height.max(1);
+        let width = NonZeroU32::new(width_u32).unwrap();
+        let height = NonZeroU32::new(height_u32).unwrap();
 
         let context = Context::new(&self.window).map_err(OverlayError::SurfaceError)?;
         let mut surface = Surface::new(&context, &self.window).map_err(OverlayError::SurfaceError)?;
@@ -68,9 +71,36 @@ impl OverlayWindow {
 
         let mut buffer = surface.buffer_mut().map_err(OverlayError::SurfaceError)?;
         
-        // Fill with black. Alpha is handled by NSWindow::setAlphaValue on macOS
-        // or SetLayeredWindowAttributes on Windows.
-        buffer.fill(0x00000000);
+        match state.filter_mode {
+            FilterMode::BlackLayer => {
+                // Fill with black. Alpha is handled by NSWindow::setAlphaValue on macOS
+                // or SetLayeredWindowAttributes on Windows.
+                buffer.fill(0x00000000);
+            }
+            FilterMode::Louver => {
+                let mut pixmap = Pixmap::new(width_u32, height_u32).unwrap();
+                pixmap.fill(Color::TRANSPARENT);
+
+                let mut paint = Paint::default();
+                paint.set_color(Color::from_rgba8(0, 0, 0, 255));
+                paint.anti_alias = false;
+
+                // Draw 1px vertical stripes
+                for x in (0..width_u32).step_by(2) {
+                    if let Some(rect) = Rect::from_xywh(x as f32, 0.0, 1.0, height_u32 as f32) {
+                        pixmap.fill_rect(rect, &paint, tiny_skia::Transform::identity(), None);
+                    }
+                }
+
+                // Copy pixmap to buffer
+                for (dest, src) in buffer.iter_mut().zip(pixmap.data().chunks_exact(4)) {
+                    // tiny-skia is RGBA, softbuffer expects ARGB or similar depending on platform.
+                    // But here we just want to fill the buffer with the pattern.
+                    // For louver, we use 0xFF alpha for black stripes.
+                    *dest = u32::from_be_bytes([src[3], src[0], src[1], src[2]]);
+                }
+            }
+        }
 
         buffer.present().map_err(OverlayError::SurfaceError)?;
         Ok(())
@@ -80,23 +110,24 @@ impl OverlayWindow {
         self.window.set_visible(visible);
     }
 
-    pub fn update_alpha(&mut self, alpha: u8) -> Result<(), OverlayError> {
+    pub fn update_alpha(&mut self, state: &AppState, alpha: u8) -> Result<(), OverlayError> {
         #[cfg(target_os = "windows")]
         platform::apply_overlay_settings(&self.window, alpha);
         
-        self.draw(alpha)
+        self.draw(state, alpha)
     }
 }
 
 pub fn create_all<T>(
     event_loop: &EventLoopWindowTarget<T>,
     monitors: Vec<MonitorHandle>,
+    state: &AppState,
 ) -> Vec<OverlayWindow> {
     let mut overlays = Vec::new();
     for monitor in monitors {
         match OverlayWindow::new(event_loop, &monitor, 77) {
             Ok(mut overlay) => {
-                let _ = overlay.draw(77);
+                let _ = overlay.draw(state, 77);
                 overlays.push(overlay);
             }
             Err(e) => eprintln!("Failed to create overlay window: {:?}", e),
@@ -109,13 +140,14 @@ pub fn add_display<T>(
     overlays: &mut Vec<OverlayWindow>,
     event_loop: &EventLoopWindowTarget<T>,
     monitor: &MonitorHandle,
+    state: &AppState,
     visible: bool,
     alpha: u8,
 ) -> Result<MonitorId, OverlayError> {
     let mut overlay = OverlayWindow::new(event_loop, monitor, alpha)?;
     overlay.set_visible(visible);
     if visible {
-        let _ = overlay.draw(alpha);
+        let _ = overlay.draw(state, alpha);
     }
     let id = overlay.monitor_id;
     overlays.push(overlay);
@@ -132,7 +164,7 @@ pub fn sync_all(overlays: &mut Vec<OverlayWindow>, state: &AppState) {
         overlay.set_visible(visible);
         if visible {
             if let Some(config) = state.displays.get(&overlay.monitor_id) {
-                let _ = overlay.update_alpha(config.alpha_u8());
+                let _ = overlay.update_alpha(state, config.alpha_u8());
             }
         }
     }

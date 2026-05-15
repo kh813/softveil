@@ -4,11 +4,18 @@ use serde::{Serialize, Deserialize};
 
 const APP_NAME: &str = "softveil";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FilterMode {
+    BlackLayer,
+    Louver,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AppConfig {
     pub global_enabled: bool,
     pub default_alpha: f32,
     pub auto_start: bool,
+    pub filter_mode: FilterMode,
     pub display_settings: HashMap<String, DisplayConfig>,
 }
 
@@ -18,6 +25,7 @@ impl Default for AppConfig {
             global_enabled: true,
             default_alpha: 0.30,
             auto_start: false,
+            filter_mode: FilterMode::BlackLayer,
             display_settings: HashMap::new(),
         }
     }
@@ -28,6 +36,7 @@ pub struct AppState {
     pub displays: HashMap<MonitorId, DisplayConfig>,
     pub default_config: DisplayConfig,
     pub auto_start: bool,
+    pub filter_mode: FilterMode,
     stored_display_settings: HashMap<String, DisplayConfig>,
 }
 
@@ -44,6 +53,7 @@ impl AppState {
                 position_key: String::new(),
             },
             auto_start: config.auto_start,
+            filter_mode: config.filter_mode,
             stored_display_settings: config.display_settings,
         }
     }
@@ -60,12 +70,16 @@ impl AppState {
             global_enabled: self.global_enabled,
             default_alpha: self.default_config.alpha,
             auto_start: self.auto_start,
+            filter_mode: self.filter_mode,
             display_settings,
         };
 
         let _ = confy::store(APP_NAME, None, config);
     }
 
+    pub fn set_filter_mode(&mut self, mode: FilterMode) {
+        self.filter_mode = mode;
+    }
     pub fn toggle_global(&mut self) -> bool {
         self.global_enabled = !self.global_enabled;
         self.global_enabled

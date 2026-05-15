@@ -6,9 +6,9 @@ mod single_instance;
 mod tray;
 mod hotkey;
 
-use app::AppState;
+use app::{AppState, FilterMode};
 use display_config::{MonitorId, DisplayConfig, DisconnectedCache};
-use tray::{TrayHandle, MENU_ID_GLOBAL_TOGGLE, MENU_ID_DISPLAY_TOGGLE_PREFIX, MENU_ID_ALPHA_PREFIX, MENU_ID_AUTO_START, MENU_ID_QUIT};
+use tray::{TrayHandle, MENU_ID_GLOBAL_TOGGLE, MENU_ID_DISPLAY_TOGGLE_PREFIX, MENU_ID_ALPHA_PREFIX, MENU_ID_MODE_PREFIX, MENU_ID_AUTO_START, MENU_ID_QUIT};
 use auto_launch::AutoLaunchBuilder;
 use hotkey::HotkeyEvent;
 use tao::event_loop::ControlFlow;
@@ -51,7 +51,7 @@ fn main() {
         state.add_display_with_pos(id, pos_key);
     }
     
-    let mut overlays = overlay::create_all(&event_loop, monitors);
+    let mut overlays = overlay::create_all(&event_loop, monitors, &state);
     println!("Created {} overlay windows.", overlays.len());
     
     // Sync initial overlays with loaded state
@@ -154,6 +154,22 @@ fn main() {
                         t.rebuild_menu(&state, &overlays);
                     }
                 }
+            } else if id.starts_with(MENU_ID_MODE_PREFIX) {
+                let mode_str = &id[MENU_ID_MODE_PREFIX.len()..];
+                let mode = match mode_str {
+                    "BlackLayer" => Some(FilterMode::BlackLayer),
+                    "Louver" => Some(FilterMode::Louver),
+                    _ => None,
+                };
+                if let Some(m) = mode {
+                    println!("Menu: Set Filter Mode {:?}", m);
+                    state.set_filter_mode(m);
+                    state.save();
+                    overlay::sync_all(&mut overlays, &state);
+                    if let Some(ref t) = tray_handle {
+                        t.rebuild_menu(&state, &overlays);
+                    }
+                }
             } else if id == MENU_ID_AUTO_START {
                 println!("Menu: Toggle Auto Start");
                 let enabled = state.toggle_auto_start();
@@ -206,6 +222,7 @@ fn main() {
                         &mut overlays,
                         event_loop_target,
                         &monitor,
+                        &state,
                         state.is_visible(&id),
                         config.alpha_u8()
                     );

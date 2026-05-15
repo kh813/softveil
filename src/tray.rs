@@ -1,4 +1,4 @@
-use crate::app::AppState;
+use crate::app::{AppState, FilterMode};
 use crate::overlay::OverlayWindow;
 use tray_icon::{TrayIcon, TrayIconBuilder, Icon};
 use muda::{Menu, MenuItem, Submenu, PredefinedMenuItem, CheckMenuItem};
@@ -6,6 +6,7 @@ use muda::{Menu, MenuItem, Submenu, PredefinedMenuItem, CheckMenuItem};
 pub const MENU_ID_GLOBAL_TOGGLE: &str = "global_toggle";
 pub const MENU_ID_DISPLAY_TOGGLE_PREFIX: &str = "display_toggle:";
 pub const MENU_ID_ALPHA_PREFIX: &str = "alpha:";
+pub const MENU_ID_MODE_PREFIX: &str = "mode:";
 pub const MENU_ID_AUTO_START: &str = "auto_start";
 pub const MENU_ID_QUIT: &str = "quit";
 
@@ -96,6 +97,23 @@ fn build_menu(state: &AppState, overlays: &[OverlayWindow]) -> Menu {
         let _ = alpha_submenu.append(&item);
     }
     let _ = menu.append(&alpha_submenu);
+
+    let mode_submenu = Submenu::new("フィルター形式", true);
+    let modes = [
+        (FilterMode::BlackLayer, "単色レイヤー"),
+        (FilterMode::Louver, "縦縞ルーバー"),
+    ];
+    for (mode, label) in modes {
+        let item = CheckMenuItem::with_id(
+            format!("{}{:?}", MENU_ID_MODE_PREFIX, mode),
+            label,
+            true,
+            state.filter_mode == mode,
+            None,
+        );
+        let _ = mode_submenu.append(&item);
+    }
+    let _ = menu.append(&mode_submenu);
 
     let _ = menu.append(&PredefinedMenuItem::separator());
 
