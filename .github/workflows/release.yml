@@ -1,0 +1,66 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    name: Build - ${{ matrix.platform.os }}
+    runs-on: ${{ matrix.platform.os }}
+    strategy:
+      matrix:
+        platform:
+          - os: macos-latest
+            target: universal-apple-darwin
+            bin: softveil
+            asset_name: Softveil-macOS.zip
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bin: softveil.exe
+            asset_name: Softveil-Windows.zip
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform.target }}
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build binary
+        run: cargo build --release --target ${{ matrix.platform.target }}
+
+      # macOS specific: Create .app bundle and zip it
+      - name: Bundle macOS App
+        if: matrix.platform.os == 'macos-latest'
+        run: |
+          mkdir -p Softveil.app/Contents/MacOS
+          mkdir -p Softveil.app/Contents/Resources
+          cp target/${{ matrix.platform.target }}/release/softveil Softveil.app/Contents/MacOS/
+          cp package/macos/Info.plist Softveil.app/Contents/
+          cp assets/icon_macos.icns Softveil.app/Contents/Resources/
+          cp assets/face_detector.onnx Softveil.app/Contents/Resources/
+          zip -r ${{ matrix.platform.asset_name }} Softveil.app
+
+      # Windows specific: Zip .exe and model
+      - name: Bundle Windows App
+        if: matrix.platform.os == 'windows-latest'
+        run: |
+          mkdir dist
+          cp target/${{ matrix.platform.target }}/release/softveil.exe dist/
+          cp assets/face_detector.onnx dist/
+          compress-archive -Path dist/* -DestinationPath ${{ matrix.platform.asset_name }}
+        shell: pwsh
+
+      - name: Upload binaries to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.platform.asset_name }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

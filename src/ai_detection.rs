@@ -19,16 +19,31 @@ pub fn start_detection_thread(
         let mut camera: Option<Camera> = None;
         let mut running = false;
 
-        // Load AI model
-        let model_path = "assets/face_detector.onnx";
+        // Load AI model from a relative path to the executable or resources
+        let exe_path = std::env::current_exe().unwrap_or_default();
+        let exe_dir = exe_path.parent().unwrap_or(std::path::Path::new("."));
+        
+        #[cfg(target_os = "macos")]
+        let model_path = exe_dir.parent().unwrap_or(exe_dir).join("Resources").join("face_detector.onnx");
+        
+        #[cfg(not(target_os = "macos"))]
+        let model_path = exe_dir.join("face_detector.onnx");
+
+        // Fallback to local assets during development
+        let model_path = if model_path.exists() {
+            model_path
+        } else {
+            std::path::PathBuf::from("assets/face_detector.onnx")
+        };
+
         let model = match onnx()
-            .model_for_path(model_path)
+            .model_for_path(&model_path)
             .and_then(|m| m.with_input_fact(0, f32::fact(&[1, 3, 240, 320]).into()))
             .and_then(|m| m.into_optimized())
             .and_then(|m| m.into_runnable()) 
         {
             Ok(m) => {
-                println!("AI model loaded successfully from {}", model_path);
+                println!("AI model loaded successfully from {}", model_path.display());
                 Some(m)
             }
             Err(e) => {
