@@ -10,15 +10,13 @@ jobs:
     name: Build - ${{ matrix.platform.os }}
     runs-on: ${{ matrix.platform.os }}
     strategy:
+      fail-fast: false
       matrix:
         platform:
           - os: macos-latest
-            target: universal-apple-darwin
-            bin: softveil
             asset_name: Softveil-macOS.zip
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            bin: softveil.exe
             asset_name: Softveil-Windows.zip
 
     steps:
@@ -28,30 +26,30 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.platform.target }}
+          targets: ${{ matrix.platform.target || 'aarch64-apple-darwin,x86_64-apple-darwin' }}
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
 
-      - name: Build binary
-        run: cargo build --release --target ${{ matrix.platform.target }}
-
-      # macOS specific: Create .app bundle and zip it
-      - name: Bundle macOS App
+      # macOS specific: Build both targets and lipo
+      - name: Build macOS Universal Binary
         if: matrix.platform.os == 'macos-latest'
         run: |
+          cargo build --release --target x86_64-apple-darwin
+          cargo build --release --target aarch64-apple-darwin
           mkdir -p Softveil.app/Contents/MacOS
           mkdir -p Softveil.app/Contents/Resources
-          cp target/${{ matrix.platform.target }}/release/softveil Softveil.app/Contents/MacOS/
+          lipo -create target/x86_64-apple-darwin/release/softveil target/aarch64-apple-darwin/release/softveil -output Softveil.app/Contents/MacOS/softveil
           cp package/macos/Info.plist Softveil.app/Contents/
           cp assets/icon_macos.icns Softveil.app/Contents/Resources/
           cp assets/face_detector.onnx Softveil.app/Contents/Resources/
           zip -r ${{ matrix.platform.asset_name }} Softveil.app
 
-      # Windows specific: Zip .exe and model
-      - name: Bundle Windows App
+      # Windows specific: Build and zip
+      - name: Build Windows App
         if: matrix.platform.os == 'windows-latest'
         run: |
+          cargo build --release --target ${{ matrix.platform.target }}
           mkdir dist
           cp target/${{ matrix.platform.target }}/release/softveil.exe dist/
           cp assets/face_detector.onnx dist/
