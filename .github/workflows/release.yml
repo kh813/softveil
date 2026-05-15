@@ -4,6 +4,8 @@ on:
   push:
     tags:
       - 'v*'
+  # 手動でビルドを実行できるようにする
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -11,6 +13,8 @@ permissions:
 jobs:
   build:
     name: Build - ${{ matrix.platform.os }}
+    # コミットメッセージに [skip ci] が含まれている場合は実行しない
+    if: "!contains(github.event.head_commit.message, '[skip ci]')"
     runs-on: ${{ matrix.platform.os }}
     strategy:
       fail-fast: false
