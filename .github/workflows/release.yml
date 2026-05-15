@@ -53,13 +53,12 @@ jobs:
           codesign --force --deep --sign - Softveil.app
           zip -r ${{ matrix.platform.asset_name }} Softveil.app
 
-      # Windows specific: Zip .exe and model
+      # Windows specific: Zip .exe
       - name: Bundle Windows App
         if: matrix.platform.os == 'windows-latest'
         run: |
           mkdir dist
           cp target/${{ matrix.platform.target }}/release/softveil.exe dist/
-          cp assets/face_detector.onnx dist/
           compress-archive -Path dist/* -DestinationPath ${{ matrix.platform.asset_name }}
         shell: pwsh
 

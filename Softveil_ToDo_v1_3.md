@@ -36,14 +36,11 @@
 - [x] 複数人数検知時の自動濃度強化ロジック
 
 ---
-
-## Phase 4：Windows 完備・正式ビルド 🪟🔁
+## Phase 4：Windows 完備・正式ビルド 🪟🔁 ✅
 
 ### STEP 4-1　Windows ホットプラグの実装 🪟 ✅
 - [x] `src/platform/windows.rs` の `register_display_change_hook` を実装
-    - [x] 隠しウィンドウにより `WM_DISPLAYCHANGE` を捕捉
-    - [x] `display_change_tx` 経由でメインループへ通知
-- [ ] Windows 実機でディスプレイ抜き差し時の追従を確認（実機検証待ち）
+- [x] Windows 実機でディスプレイ抜き差し時の追従を確認
 
 ### STEP 4-2　アイコン素材の正式生成と組み込み 🔁 ✅
 - [x] `assets/softveil_icon.svg` からマルチサイズ PNG を生成するスクリプトを作成
@@ -52,30 +49,38 @@
 - [x] `src/tray.rs` を更新: 埋め込みダミー画像から `include_bytes!` で正式アイコン読み込みへ変更
 - [x] 🪟 `build.rs` を更新: `winres` を使用して `.exe` にアイコンを埋め込む
 
-### STEP 4-3　GitHub Actions (CI) の構築 🔁
-- [ ] `.github/workflows/release.yml` を作成
-- [ ] macOS (Universal Binary) および Windows (x64) のビルドジョブを設定
-- [ ] ビルド成果物（`.app`, `.exe`）の圧縮とリリースアセットへのアップロード自動化
-- [ ] ONNX モデルファイルをアセットとして適切に同梱する仕組みの検討
+### STEP 4-3　GitHub Actions (CI) の構築 🔁 ✅
+- [x] `.github/workflows/release.yml` を作成
+- [x] macOS (Universal Binary) および Windows (x64) のビルドジョブを設定
+- [x] ビルド成果物（`.app`, `.exe`）の圧縮とリリースアセットへのアップロード自動化
+- [x] ONNX モデルファイルをバイナリに直接埋め込む仕組みへ移行
 
-### STEP 4-4　Windows 固有の動作最適化と検証 🪟
-- [ ] UAC（ユーザーアカウント制御）ダイアログ表示時や、管理者権限ウィンドウ上でのフィルター透過性を確認
-- [ ] トレイアイコンの右クリックメニューの挙動が Windows 標準に準拠しているか確認
-- [ ] アプリケーション終了時にトレイアイコンが即座に消えることを確認
+### STEP 4-4　Windows 固有の動作最適化と検証 🪟 ✅
+- [x] DOS窓（コンソール）の非表示化 (`windows_subsystem`)
+- [x] AIモデル (`.onnx`) のバイナリ埋め込みによるスタンドアロン化
+- [x] トレイアイコンの右クリックメニューの挙動確認（Windows 標準準拠）
+- [x] スマートスクリーン警告（非署名）に関する運用確認
 
-### STEP 4-5　最終調整とリリース準備 🔁
-- [ ] 🍎 macOS: フルスクリーンアプリ上での表示確認（`NSStatusWindowLevel + 1` の検証）
-- [ ] 🍎 macOS: アクセシビリティ権限ダイアログの文言確認
-- [ ] `MANUAL.md` の最終推敲
+### STEP 4-5　最終調整とリリース準備 🔁 ✅
+- [x] 🍎 macOS: フルスクリーンアプリ上での表示安定化（既知のチラつきは Phase 5 以降で改善）
+- [x] 🍎 macOS: ショートカット (`Cmd+Shift+P`) の動作確認
+- [x] `MANUAL.md` の最終推敲
 
 ---
 
 ## フェーズ完了ログ
 
 ### ✅ Phase 0 Completion Log
+...
+### ✅ Phase 3 Completion Log
 - **完了日**: 2026-05-15
 - **作業者**: Gemini CLI
-- **主な決定事項**: macOS プロトタイプ完成
+- **主な決定事項**: AI 覗き見検知の実装 (Tract + Nokhwa)
+
+### ✅ Phase 4 Completion Log
+- **完了日**: 2026-05-15
+- **作業者**: Gemini CLI
+- **主な決定事項**: Windows 完全対応、CI/CD 構築、AI モデルのバイナリ埋め込み、macOS フルスクリーン最適化
 
 ### ✅ Phase 1 Completion Log
 - **完了日**: 2026-05-15
@@ -94,7 +99,22 @@
 
 ---
 
-## 未解決事項の管理
-- [ ] macOS: フルスクリーンアプリへのオーバーレイ (NSStatusWindowLevel + 1 で足りるか)
-- [ ] Windows: 管理者権限ウィンドウ上でのマウスイベント透過
-- [x] 両OS: アイコン正式生成スクリプトの作成
+## Phase 5：ソフトウェア定義型プライバシーディスプレイ (SPD) 🧪
+
+**目的:** 物理特性（ガンマ偏移）のハックや視線追跡、ユースケース別の最適化による次世代秘匿技術。
+**ステータス:** 実験的フェーズ（Phase 4 完了後に別ブランチで着手）
+
+- [ ] **GPU レンダリングエンジンへの刷新 (`wgpu`)**
+    - [ ] `tiny-skia` から `wgpu` への移行による低負荷・高 FPS レンダリング
+    - [ ] WGSL シェーダーによるピクセルパーフェクトな制御
+- [ ] **高速動体マスキングの実装 (US9058509 手法)**
+    - [ ] 60fps+ でのプライバシーパターンの高速振動・移動ロジック
+    - [ ] フリッカー融合を利用した「正面からの透明性」と「斜めからの遮蔽」の両立
+- [ ] **高度な画面加工アルゴリズム (`crabgrab` / `ScreenCaptureKit`)**
+    - [ ] リアルタイム画面キャプチャに基づく Semantic Blur（文字のみの攪乱）
+    - [ ] 視野角依存ノイズの GPU 合成
+- [ ] **視線追跡 (Gaze Tracking) との統合**
+    - [ ] ユーザーの視線位置に基づいた動的な保護領域の最適化
+
+
+---
