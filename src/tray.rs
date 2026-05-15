@@ -42,6 +42,8 @@ impl TrayHandle {
 
         #[cfg(target_os = "macos")]
         {
+            // Note: Template icons on macOS should be black shapes with transparency.
+            // Tao/tray-icon uses this to allow the system to tint the icon.
             builder = builder.with_icon_as_template(true);
         }
 

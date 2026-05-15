@@ -38,10 +38,14 @@ iconutil -c icns "$ICONSET" -o "assets/icon_macos.icns"
 
 # 4. Generate a 22x22 template icon for macOS menu bar (Template)
 echo "🍎 Creating assets/icon_macos_template.png..."
-# We remove the background rect to get a transparent icon shape
-# Using a temp file to avoid issues with pipes and magick
+# Standard macOS template icon: Black shape on transparent background.
+# System will automatically tint it white in Dark Mode.
 TEMPLATE_SVG="assets/temp_template.svg"
-sed 's/<rect x="0" y="0" width="1024" height="1024" rx="224" fill="#f2f2f2"\/>//' "$SOURCE_SVG" > "$TEMPLATE_SVG"
+# Remove background and make sure all fills/strokes are black for the template
+sed -e 's/<rect x="0" y="0" width="1024" height="1024" rx="224" fill="#f2f2f2"\/>//' \
+    -e 's/fill="#[^"]*"/fill="#000000"/g' \
+    -e 's/stroke="#[^"]*"/stroke="#000000"/g' \
+    "$SOURCE_SVG" > "$TEMPLATE_SVG"
 
 magick -background none "$TEMPLATE_SVG" -resize 22x22 "assets/icon_macos_template.png"
 magick -background none "$TEMPLATE_SVG" -resize 44x44 "assets/icon_macos_template@2x.png"
