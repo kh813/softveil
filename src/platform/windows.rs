@@ -16,15 +16,19 @@ pub fn get_monitor_id(monitor: &MonitorHandle) -> MonitorId {
 }
 
 pub struct HotplugGuard {
-    hwnd: HWND,
+    hwnd: SendHWND,
     thread_handle: Option<thread::JoinHandle<()>>,
 }
 
+#[derive(Clone, Copy)]
+struct SendHWND(HWND);
+unsafe impl Send for SendHWND {}
+
 impl Drop for HotplugGuard {
     fn drop(&mut self) {
-        if !self.hwnd.is_null() {
+        if !self.hwnd.0.is_null() {
             unsafe {
-                PostMessageW(self.hwnd, WM_CLOSE, 0, 0);
+                PostMessageW(self.hwnd.0, WM_CLOSE, 0, 0);
             }
         }
         if let Some(handle) = self.thread_handle.take() {
@@ -72,7 +76,7 @@ pub fn register_display_change_hook(tx: mpsc::Sender<DisplayChangeEvent>) -> Hot
             if !hwnd.is_null() {
                 let tx_ptr = Box::into_raw(Box::new(tx));
                 SetWindowLongPtrW(hwnd, GWLP_USERDATA, tx_ptr as isize);
-                let _ = hwnd_tx.send(hwnd);
+                let _ = hwnd_tx.send(SendHWND(hwnd));
                 
                 let mut msg = std::mem::zeroed();
                 while GetMessageW(&mut msg, null_mut(), 0, 0) != 0 {
@@ -85,12 +89,12 @@ pub fn register_display_change_hook(tx: mpsc::Sender<DisplayChangeEvent>) -> Hot
                     let _ = Box::from_raw(tx_ptr);
                 }
             } else {
-                let _ = hwnd_tx.send(null_mut());
+                let _ = hwnd_tx.send(SendHWND(null_mut()));
             }
         }
     });
 
-    let hwnd = hwnd_rx.recv().unwrap_or(null_mut());
+    let hwnd = hwnd_rx.recv().unwrap_or(SendHWND(null_mut()));
     HotplugGuard {
         hwnd,
         thread_handle: Some(thread_handle),
