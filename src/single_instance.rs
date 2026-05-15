@@ -50,7 +50,7 @@ pub fn acquire() -> Result<SingleInstanceGuard, SingleInstanceError> {
     let name = "Local\\SoftveilMutex\0".encode_utf16().collect::<Vec<u16>>();
     unsafe {
         let handle = CreateMutexW(std::ptr::null(), TRUE, name.as_ptr());
-        if handle == 0 {
+        if handle.is_null() {
             return Err(SingleInstanceError::Io(std::io::Error::last_os_error()));
         }
         if GetLastError() == ERROR_ALREADY_EXISTS {

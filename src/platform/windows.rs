@@ -22,7 +22,7 @@ pub struct HotplugGuard {
 
 impl Drop for HotplugGuard {
     fn drop(&mut self) {
-        if self.hwnd != 0 {
+        if !self.hwnd.is_null() {
             unsafe {
                 PostMessageW(self.hwnd, WM_CLOSE, 0, 0);
             }
@@ -47,9 +47,9 @@ pub fn register_display_change_hook(tx: mpsc::Sender<DisplayChangeEvent>) -> Hot
                 cbClsExtra: 0,
                 cbWndExtra: 0,
                 hInstance: hinstance,
-                hIcon: 0,
-                hCursor: 0,
-                hbrBackground: 0,
+                hIcon: null_mut(),
+                hCursor: null_mut(),
+                hbrBackground: null_mut(),
                 lpszMenuName: null_mut(),
                 lpszClassName: class_name.as_ptr(),
             };
@@ -63,19 +63,19 @@ pub fn register_display_change_hook(tx: mpsc::Sender<DisplayChangeEvent>) -> Hot
                 null_mut(),
                 0,
                 0, 0, 0, 0,
-                0,
-                0,
+                null_mut(),
+                null_mut(),
                 hinstance,
                 null_mut(),
             );
             
-            if hwnd != 0 {
+            if !hwnd.is_null() {
                 let tx_ptr = Box::into_raw(Box::new(tx));
                 SetWindowLongPtrW(hwnd, GWLP_USERDATA, tx_ptr as isize);
                 let _ = hwnd_tx.send(hwnd);
                 
                 let mut msg = std::mem::zeroed();
-                while GetMessageW(&mut msg, 0, 0, 0) != 0 {
+                while GetMessageW(&mut msg, null_mut(), 0, 0) != 0 {
                     TranslateMessage(&msg);
                     DispatchMessageW(&msg);
                 }
@@ -85,12 +85,12 @@ pub fn register_display_change_hook(tx: mpsc::Sender<DisplayChangeEvent>) -> Hot
                     let _ = Box::from_raw(tx_ptr);
                 }
             } else {
-                let _ = hwnd_tx.send(0);
+                let _ = hwnd_tx.send(null_mut());
             }
         }
     });
 
-    let hwnd = hwnd_rx.recv().unwrap_or(0);
+    let hwnd = hwnd_rx.recv().unwrap_or(null_mut());
     HotplugGuard {
         hwnd,
         thread_handle: Some(thread_handle),
@@ -120,15 +120,16 @@ extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPA
 }
 
 pub fn apply_overlay_settings(window: &Window, alpha: u8) {
-    let hwnd = window.hwnd() as isize;
+    let hwnd = window.hwnd() as HWND;
     unsafe {
         set_ex_style(hwnd, WS_EX_TRANSPARENT | WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW);
         SetLayeredWindowAttributes(hwnd, 0, alpha, LWA_ALPHA);
-        SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+        SetWindowPos(hwnd, HWND_TOPMOST as HWND, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
     }
 }
 
-unsafe fn set_ex_style(hwnd: isize, additional_flags: u32) {
+unsafe fn set_ex_style(hwnd: HWND, additional_flags: u32) {
     let current_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as usize;
     SetWindowLongPtrW(hwnd, GWL_EXSTYLE, (current_style | additional_flags as usize) as isize);
 }
+

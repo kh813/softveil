@@ -35,17 +35,13 @@ impl TrayHandle {
 
         let menu = build_menu(state, overlays);
 
-        let mut builder = TrayIconBuilder::new()
+        let builder = TrayIconBuilder::new()
             .with_icon(icon)
             .with_menu(Box::new(menu))
             .with_tooltip("Softveil");
 
         #[cfg(target_os = "macos")]
-        {
-            // Note: Template icons on macOS should be black shapes with transparency.
-            // Tao/tray-icon uses this to allow the system to tint the icon.
-            builder = builder.with_icon_as_template(true);
-        }
+        let builder = builder.with_icon_as_template(true);
 
         let tray_icon = builder.build().map_err(|e| TrayError::IconError(e.to_string()))?;
 
