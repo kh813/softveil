@@ -238,56 +238,52 @@ fn main() {
             let mut new_ids = current_ids.clone();
             new_ids.sort();
 
-            if existing_ids == new_ids {
-                // No actual change in monitor set, likely just a parameter change (like going fullscreen)
-                // Skip re-creation to avoid flickering.
-                continue;
-            }
-
-            println!("Display configuration changed. Recalculating...");
-            
-            let mut removed_ids = Vec::new();
-            for overlay in &overlays {
-                if !current_ids.contains(&overlay.monitor_id) {
-                    removed_ids.push(overlay.monitor_id);
+            if existing_ids != new_ids {
+                println!("Display configuration changed. Recalculating...");
+                
+                let mut removed_ids = Vec::new();
+                for overlay in &overlays {
+                    if !current_ids.contains(&overlay.monitor_id) {
+                        removed_ids.push(overlay.monitor_id);
+                    }
                 }
-            }
-            
-            for id in removed_ids {
-                println!("Removing display: {:?}", id);
-                if let Some(config) = state.remove_display(&id) {
-                    cache.store(config);
+                
+                for id in removed_ids {
+                    println!("Removing display: {:?}", id);
+                    if let Some(config) = state.remove_display(&id) {
+                        cache.store(config);
+                    }
+                    overlay::remove_display(&mut overlays, &id);
                 }
-                overlay::remove_display(&mut overlays, &id);
-            }
-            
-            for monitor in current_monitors {
-                let id = MonitorId::from_monitor(&monitor);
-                if !overlays.iter().any(|o| o.monitor_id == id) {
-                    println!("Adding display: {:?}", id);
-                    let pos_key = DisplayConfig::make_position_key(monitor.position(), monitor.size());
-                    let config = cache.restore(&pos_key).unwrap_or_else(|| {
-                        let mut c = DisplayConfig::default();
-                        c.position_key = pos_key;
-                        c
-                    });
-                    
-                    state.add_display(id, Some(config.clone()));
-                    let _ = overlay::add_display(
-                        &mut overlays,
-                        event_loop_target,
-                        &monitor,
-                        &state,
-                        state.is_visible(&id),
-                        config.alpha_u8()
-                    );
+                
+                for monitor in current_monitors {
+                    let id = MonitorId::from_monitor(&monitor);
+                    if !overlays.iter().any(|o| o.monitor_id == id) {
+                        println!("Adding display: {:?}", id);
+                        let pos_key = DisplayConfig::make_position_key(monitor.position(), monitor.size());
+                        let config = cache.restore(&pos_key).unwrap_or_else(|| {
+                            let mut c = DisplayConfig::default();
+                            c.position_key = pos_key;
+                            c
+                        });
+                        
+                        state.add_display(id, Some(config.clone()));
+                        let _ = overlay::add_display(
+                            &mut overlays,
+                            event_loop_target,
+                            &monitor,
+                            &state,
+                            state.is_visible(&id),
+                            config.alpha_u8()
+                        );
+                    }
                 }
+                
+                if let Some(ref t) = tray_handle {
+                    t.rebuild_menu(&state, &overlays);
+                }
+                state.save();
             }
-            
-            if let Some(ref t) = tray_handle {
-                t.rebuild_menu(&state, &overlays);
-            }
-            state.save();
         }
 
         match event {

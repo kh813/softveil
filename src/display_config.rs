@@ -4,7 +4,7 @@ use tao::dpi::{PhysicalPosition, PhysicalSize};
 use crate::platform;
 use serde::{Serialize, Deserialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 pub struct MonitorId(pub u64);
 
 impl MonitorId {
