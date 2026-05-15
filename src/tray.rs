@@ -17,7 +17,7 @@ pub struct TrayHandle {
 
 #[derive(Debug)]
 pub enum TrayError {
-    IconError(String),
+    IconError(#[allow(dead_code)] String),
 }
 
 impl TrayHandle {

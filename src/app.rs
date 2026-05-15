@@ -117,12 +117,6 @@ impl AppState {
         self.auto_start
     }
 
-    pub fn set_alpha(&mut self, id: &MonitorId, alpha: f32) {
-        if let Some(config) = self.displays.get_mut(id) {
-            config.alpha = alpha.clamp(0.0, 1.0);
-        }
-    }
-
     pub fn set_global_alpha(&mut self, alpha: f32) {
         let alpha = alpha.clamp(0.0, 1.0);
         self.default_config.alpha = alpha;

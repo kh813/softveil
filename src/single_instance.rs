@@ -12,7 +12,7 @@ use windows_sys::Win32::System::Threading::*;
 #[derive(Debug)]
 pub enum SingleInstanceError {
     AlreadyRunning,
-    Io(std::io::Error),
+    Io(#[allow(dead_code)] std::io::Error),
     #[cfg(target_os = "windows")]
     WindowsError(u32),
 }
@@ -27,53 +27,52 @@ pub struct SingleInstanceGuard {
     handle: HANDLE,
 }
 
-pub fn acquire() -> Result<SingleInstanceGuard, SingleInstanceError> {
-    #[cfg(target_os = "macos")]
-    {
-        let lock_path = std::env::temp_dir().join("softveil.lock");
-        let file = File::create(&lock_path).map_err(SingleInstanceError::Io)?;
-        
-        unsafe {
-            let fd = file.as_raw_fd();
-            if libc::flock(fd, libc::LOCK_EX | libc::LOCK_NB) != 0 {
-                return Err(SingleInstanceError::AlreadyRunning);
-            }
-        }
-        
-        Ok(SingleInstanceGuard { _file: file, lock_path })
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        unsafe {
-            let name: Vec<u16> = "Local\\SoftveilMutex".encode_utf16().chain(std::iter::once(0)).collect();
-            let handle = CreateMutexW(std::ptr::null(), TRUE, name.as_ptr());
-            if handle == 0 {
-                return Err(SingleInstanceError::WindowsError(GetLastError()));
-            }
-            if GetLastError() == ERROR_ALREADY_EXISTS {
-                CloseHandle(handle);
-                return Err(SingleInstanceError::AlreadyRunning);
-            }
-            Ok(SingleInstanceGuard { handle })
-        }
-    }
-}
-
 #[cfg(target_os = "macos")]
-impl Drop for SingleInstanceGuard {
-    fn drop(&mut self) {
-        unsafe {
-            let fd = self._file.as_raw_fd();
-            libc::flock(fd, libc::LOCK_UN);
+pub fn acquire() -> Result<SingleInstanceGuard, SingleInstanceError> {
+    let mut path = std::env::temp_dir();
+    path.push("softveil.lock");
+    
+    let file = File::create(&path).map_err(SingleInstanceError::Io)?;
+    let fd = file.as_raw_fd();
+    
+    unsafe {
+        let res = libc::flock(fd, libc::LOCK_EX | libc::LOCK_NB);
+        if res != 0 {
+            return Err(SingleInstanceError::AlreadyRunning);
         }
-        let _ = std::fs::remove_file(&self.lock_path);
     }
+    
+    Ok(SingleInstanceGuard { _file: file, lock_path: path })
 }
 
 #[cfg(target_os = "windows")]
+pub fn acquire() -> Result<SingleInstanceGuard, SingleInstanceError> {
+    let name = "Local\\SoftveilMutex\0".encode_utf16().collect::<Vec<u16>>();
+    unsafe {
+        let handle = CreateMutexW(std::ptr::null(), TRUE, name.as_ptr());
+        if handle == 0 {
+            return Err(SingleInstanceError::Io(std::io::Error::last_os_error()));
+        }
+        if GetLastError() == ERROR_ALREADY_EXISTS {
+            CloseHandle(handle);
+            return Err(SingleInstanceError::AlreadyRunning);
+        }
+        Ok(SingleInstanceGuard { handle })
+    }
+}
+
 impl Drop for SingleInstanceGuard {
     fn drop(&mut self) {
+        #[cfg(target_os = "macos")]
+        {
+            let fd = self._file.as_raw_fd();
+            unsafe {
+                libc::flock(fd, libc::LOCK_UN);
+            }
+            let _ = std::fs::remove_file(&self.lock_path);
+        }
+        
+        #[cfg(target_os = "windows")]
         unsafe {
             ReleaseMutex(self.handle);
             CloseHandle(self.handle);

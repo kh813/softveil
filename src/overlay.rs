@@ -16,8 +16,8 @@ pub struct OverlayWindow {
 
 #[derive(Debug)]
 pub enum OverlayError {
-    WindowCreationError(tao::error::OsError),
-    SurfaceError(softbuffer::SoftBufferError),
+    WindowCreationError(#[allow(dead_code)] tao::error::OsError),
+    SurfaceError(#[allow(dead_code)] softbuffer::SoftBufferError),
 }
 
 impl OverlayWindow {
