@@ -22,26 +22,30 @@ pub enum TrayError {
 
 impl TrayHandle {
     pub fn new(state: &AppState, overlays: &[OverlayWindow]) -> Result<Self, TrayError> {
-        // Create a 32x32 visible light gray square icon for testing
-        let width = 32;
-        let height = 32;
-        let mut rgba = vec![0u8; (width * height * 4) as usize];
-        for i in 0..(width * height) as usize {
-            rgba[i * 4] = 200;     // R
-            rgba[i * 4 + 1] = 200; // G
-            rgba[i * 4 + 2] = 200; // B
-            rgba[i * 4 + 3] = 255; // A (Fully opaque)
-        }
-        let icon = Icon::from_rgba(rgba, width, height).map_err(|e| TrayError::IconError(e.to_string()))?;
+        let icon_bytes = if cfg!(target_os = "macos") {
+            include_bytes!("../assets/icon_macos_template.png").as_slice()
+        } else {
+            include_bytes!("../assets/icon_windows.ico").as_slice()
+        };
+
+        let img = image::load_from_memory(icon_bytes).map_err(|e| TrayError::IconError(e.to_string()))?;
+        let rgba = img.to_rgba8();
+        let (width, height) = rgba.dimensions();
+        let icon = Icon::from_rgba(rgba.into_raw(), width, height).map_err(|e| TrayError::IconError(e.to_string()))?;
 
         let menu = build_menu(state, overlays);
 
-        let tray_icon = TrayIconBuilder::new()
+        let mut builder = TrayIconBuilder::new()
             .with_icon(icon)
             .with_menu(Box::new(menu))
-            .with_tooltip("Softveil")
-            .build()
-            .map_err(|e| TrayError::IconError(e.to_string()))?;
+            .with_tooltip("Softveil");
+
+        #[cfg(target_os = "macos")]
+        {
+            builder = builder.with_icon_as_template(true);
+        }
+
+        let tray_icon = builder.build().map_err(|e| TrayError::IconError(e.to_string()))?;
 
         Ok(Self {
             icon: tray_icon,

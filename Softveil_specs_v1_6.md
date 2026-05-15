@@ -2,7 +2,7 @@
 
 **バージョン:** 1.6
 **作成日:** 2026年5月
-**ステータス:** Phase 3 実装中
+**ステータス:** Phase 4 実装中
 
 **変更履歴:**
 
@@ -15,6 +15,7 @@
 | 1.4 | ビルド・配布形式テーブル追加（§2.4）。`Cargo.toml [package]` にバイナリ名・バンドルID明記。設計哲学（§12）・非設計事項（§13）を新設。未解決事項を Known Issues 形式に整理（§9） |
 | 1.5 | F-10 にユースケース記述・グローバルOFFとの優先関係・デフォルト値の根拠を追記。F-07 メニュー例をノートPC+外付けモニターの具体例に更新 |
 | 1.6 | Phase 3（AI 覗き見検知）の技術選定（tract + nokhwa）と機能要件を追加。依存関係に `tiny-skia`, `confy`, `auto-launch` 等を追加。 |
+| 1.7 | Phase 4（Windows 完備・正式ビルド）開始。アイコン生成スクリプトの作成、macOS テンプレートアイコン対応、各プラットフォームへの埋め込み完了。 |
 
 ---
 
@@ -79,7 +80,7 @@
 | `make all` (macOS から) | macOS ユニバーサル | `Softveil.app` | `lipo` でユニバーサルバイナリ生成 |
 | GitHub Actions `windows-latest` | Windows x64 | `Softveil.exe` | `x86_64-pc-windows-msvc`; リリースタグで起動 |
 
-> **Windows ビルド**: MSVC SDK が必要なため macOS からのクロスコンパイル不可。GitHub Actions の `windows-latest` ランナーでビルドし、リリースアセットとしてアップロードする。
+> **Windows ビルド**: MSVC SDK が必要なため macOS からの直接ビルド不可。GitHub Actions の `windows-latest` ランナーでビルドし、リリースアセットとしてアップロードする。**現在コードベースは共通化済みだが、実機検証と CI 整備が Phase 4 の課題。**
 
 > **macOS Gatekeeper**: 公証（notarization）なしで配布すると初回起動時に警告が出る。配布方法（`.app` 直配布 / `.dmg` / 署名付き）は未解決事項 #4 を参照。
 
@@ -306,6 +307,9 @@ Softveil を終了
 - **オーケストレーション**:
     - 専用スレッドで `nokhwa` のキャプチャと `tract` の推論をループ実行（0.5秒間隔）
     - メインループとの通信は `mpsc` チャネルおよび `tao` の `UserEvent` を介して非同期に行う
+- **カメラ利用不可時の挙動（重要）**:
+    - クラムシェルモード等でカメラが利用できない、または初期化に失敗した場合でも、**基本のプライバシーフィルター機能（単色/ルーバー）は動作を継続する**
+    - AI 検知スレッドはエラーをログ出力しつつ、定期的にリトライまたは待機状態となるが、メインの描画ループを妨げない
 - **動作フロー**:
     1. 覗き見検知時、全ディスプレイの濃度を一時的に 80% (Alpha=204) に引き上げる
     2. 解消時、各ディスプレイの `AppState` に基づく本来の設定値へ戻す
@@ -353,11 +357,16 @@ softveil/
 ├── Cargo.lock
 ├── build.rs                        # Windows: アイコン埋め込み（winres）
 │
+├── scripts/
+│   ├── bundle_macos.sh             # macOS: .app バンドル作成スクリプト
+│   └── generate_icons.sh           # 共通: SVG から各プラットフォーム用アイコンを生成
+│
 ├── assets/
-│   ├── icon.png                    # 元アイコン（1024×1024 推奨）
-│   ├── icon_macos.icns             # macOS .app バンドル用
-│   ├── icon_macos_template.png     # メニューバー用テンプレート画像（22×22 @2x, 白黒）
-│   └── icon_windows.ico            # Windows トレイ用（16/32/48px マルチサイズ）
+│   ├── softveil_icon.svg           # 元アイコン（ベクターソース）
+│   ├── icon_macos.icns             # macOS .app バンドル用（マルチサイズ）
+│   ├── icon_macos_template.png     # メニューバー用テンプレート画像（22×22, 透過）
+│   ├── icon_macos_template@2x.png  # メニューバー用テンプレート画像（44×44, 透過）
+│   └── icon_windows.ico            # Windows 用（16/32/48/64/256px マルチサイズ）
 │
 ├── src/
 │   ├── main.rs                     # エントリポイント。起動フロー全体を orchestrate
@@ -1027,6 +1036,11 @@ Phase 2
 
 Phase 3
  └─ AI 覗き見検知
+
+Phase 4
+ ├─ Windows 実機検証・ホットプラグ実装
+ ├─ GitHub Actions による自動ビルド (CI) 構築
+ └─ ✅ アイコン素材の正式生成 (SVGからの自動変換)
 ```
 
 ---

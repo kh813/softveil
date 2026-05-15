@@ -14,9 +14,6 @@ mkdir -p "${APP_BUNDLE}/Contents/Resources"
 
 cp "target/release/softveil" "${APP_BUNDLE}/Contents/MacOS/"
 cp "package/macos/Info.plist" "${APP_BUNDLE}/Contents/"
-
-# Placeholder icon
-# In a real app, we'd use iconutil to create .icns
-# For now we just use the placeholder if we had one in .icns format.
+cp "assets/icon_macos.icns" "${APP_BUNDLE}/Contents/Resources/"
 
 echo "Bundle created at ${APP_BUNDLE}"
