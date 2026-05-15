@@ -230,9 +230,21 @@ fn main() {
 
         // Handle Hotplug events
         if let Ok(_) = display_change_rx.try_recv() {
-            println!("Display configuration changed. Recalculating...");
             let current_monitors: Vec<_> = event_loop_target.available_monitors().collect();
             let current_ids: Vec<MonitorId> = current_monitors.iter().map(MonitorId::from_monitor).collect();
+            
+            let mut existing_ids: Vec<MonitorId> = overlays.iter().map(|o| o.monitor_id).collect();
+            existing_ids.sort();
+            let mut new_ids = current_ids.clone();
+            new_ids.sort();
+
+            if existing_ids == new_ids {
+                // No actual change in monitor set, likely just a parameter change (like going fullscreen)
+                // Skip re-creation to avoid flickering.
+                continue;
+            }
+
+            println!("Display configuration changed. Recalculating...");
             
             let mut removed_ids = Vec::new();
             for overlay in &overlays {
