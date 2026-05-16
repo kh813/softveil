@@ -223,8 +223,8 @@ impl OverlayWindow {
             time: self.start_time.elapsed().as_secs_f32(),
             mode: match state.filter_mode(&self.monitor_id) {
                 FilterMode::BlackLayer => 0,
-                FilterMode::Louver => 1,
-                FilterMode::HighSpeedMotion => 2,
+                FilterMode::VerticalLouver => 1,
+                FilterMode::FastVibration => 2,
                 FilterMode::AsymmetricCurve => 3,
             },
             alpha: alpha as f32 / 255.0,
@@ -277,7 +277,7 @@ impl OverlayWindow {
 
         // Request next frame if we are in a motion mode
         let mode = state.filter_mode(&self.monitor_id);
-        if mode == FilterMode::HighSpeedMotion || mode == FilterMode::AsymmetricCurve {
+        if mode == FilterMode::FastVibration || mode == FilterMode::AsymmetricCurve {
             self.window.request_redraw();
         }
 

@@ -109,8 +109,8 @@ fn build_menu(state: &AppState, overlays: &[OverlayWindow]) -> Menu {
         let mode_submenu = Submenu::new("フィルター形式", true);
         let modes = [
             (FilterMode::BlackLayer, "単色レイヤー"),
-            (FilterMode::Louver, "縦縞ルーバー"),
-            (FilterMode::HighSpeedMotion, "高速動体マスキング"),
+            (FilterMode::VerticalLouver, "縦縞ルーバー"),
+            (FilterMode::FastVibration, "高速動体マスキング"),
             (FilterMode::AsymmetricCurve, "非対称曲線パターン"),
         ];
         for (mode, label) in modes {

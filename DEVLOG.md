@@ -80,9 +80,12 @@
 
 ### Phase 5: パネル適応型最適化 (Panel-Adaptive Optimization)
 - **パネル判定ロジックの実装**: macOS (`system_profiler`, `NSScreen` EDR) および Windows (`EnumDisplayDevices`, モデル名マッチング) におけるパネル種別（OLED/LCD IPS/LCD TN）の自動判定を実装。
-- **適応型フィルタ戦略**: シェーダー (`shader.wgsl`) を更新し、パネル種別に応じた最適化（OLED: 焼き付き防止、LCD IPS: 位相反転アニメーション、LCD TN: 垂直スクロール）を適用。
+- **適応型フィルタ戦略**: シェーダー (`shader.wgsl`) を更新し、パネル種別に応じた最適化（OLED: 焼き付き防止、LCD IPS: 位相反転アニ メーション、LCD TN: 垂直スクロール）を適用。
+- **自動モード切り替え**: パネル種別が判定・変更された際、そのパネルに最適な `FilterMode`（OLED: 縦縞, IPS: 高速振動, TN: 非対称曲線）を自動的に選択するロジックを `AppState` に実装。
 - **UI 統合**: トレイメニューに判定されたパネル種別を表示し、手動での変更・保存を可能にした。
 - **データ構造の更新**: `DisplayConfig` に `panel_type` を追加。
+- **ドキュメント更新**: macOS での画面収録パーミッション要求に関する説明を `MANUAL.md` および仕様書に追加。
+
 
 ### 既知の問題 / 持ち越し
 - **高度な画面加工**: `crabgrab` を導入したが、リアルタイムの Semantic Blur 等の実装は継続中。

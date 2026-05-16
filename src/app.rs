@@ -138,7 +138,14 @@ impl AppState {
 
     pub fn set_panel_type(&mut self, id: &MonitorId, panel_type: crate::display_config::PanelType) {
         if let Some(config) = self.displays.get_mut(id) {
+            let old_panel = config.panel_type;
             config.panel_type = panel_type;
+            
+            // If the filter mode is default (BlackLayer) or we are transitioning from Unknown,
+            // apply the recommended filter mode for the new panel type.
+            if config.filter_mode == FilterMode::BlackLayer || old_panel == crate::display_config::PanelType::Unknown {
+                config.filter_mode = panel_type.recommended_filter_mode();
+            }
         }
     }
 

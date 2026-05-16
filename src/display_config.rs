@@ -7,9 +7,9 @@ use serde::{Serialize, Deserialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FilterMode {
     BlackLayer,
-    Louver,
-    HighSpeedMotion, // Phase 5: 高速動体マスキング
-    AsymmetricCurve, // Phase 5: 非対称曲線パターン
+    VerticalLouver,
+    FastVibration,
+    AsymmetricCurve,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -27,6 +27,15 @@ impl PanelType {
             PanelType::Oled => "OLED",
             PanelType::LcdIps => "LCD IPS",
             PanelType::LcdTn => "LCD TN",
+        }
+    }
+
+    pub fn recommended_filter_mode(&self) -> FilterMode {
+        match self {
+            PanelType::Oled => FilterMode::VerticalLouver,
+            PanelType::LcdIps => FilterMode::FastVibration,
+            PanelType::LcdTn => FilterMode::AsymmetricCurve,
+            PanelType::Unknown => FilterMode::BlackLayer,
         }
     }
 }

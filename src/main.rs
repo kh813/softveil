@@ -244,8 +244,8 @@ fn main() {
                             let monitor_id = MonitorId(val);
                             let mode = match mode_str {
                                 "BlackLayer" => Some(FilterMode::BlackLayer),
-                                "Louver" => Some(FilterMode::Louver),
-                                "HighSpeedMotion" => Some(FilterMode::HighSpeedMotion),
+                                "VerticalLouver" => Some(FilterMode::VerticalLouver),
+                                "FastVibration" => Some(FilterMode::FastVibration),
                                 "AsymmetricCurve" => Some(FilterMode::AsymmetricCurve),
                                 _ => None,
                             };
