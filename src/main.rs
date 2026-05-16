@@ -10,8 +10,8 @@ mod hotkey;
 mod ai_detection;
 
 use app::AppState;
-use display_config::{MonitorId, DisplayConfig, DisconnectedCache, FilterMode};
-use tray::{TrayHandle, MENU_ID_GLOBAL_TOGGLE, MENU_ID_DISPLAY_TOGGLE_PREFIX, MENU_ID_ALPHA_PREFIX, MENU_ID_MODE_PREFIX, MENU_ID_PANEL_PREFIX, MENU_ID_INTENSITY_PREFIX, MENU_ID_AUTO_START, MENU_ID_AI_DETECTION, MENU_ID_QUIT};
+use display_config::{MonitorId, DisplayConfig, DisconnectedCache, FilterMode, DisplayCategory};
+use tray::{TrayHandle, MENU_ID_GLOBAL_TOGGLE, MENU_ID_DISPLAY_TOGGLE_PREFIX, MENU_ID_ALPHA_PREFIX, MENU_ID_MODE_PREFIX, MENU_ID_PANEL_PREFIX, MENU_ID_CATEGORY_PREFIX, MENU_ID_INTENSITY_PREFIX, MENU_ID_AUTO_START, MENU_ID_AI_DETECTION, MENU_ID_QUIT};
 use ai_detection::{AIDetectionCommand, start_detection_thread};
 use auto_launch::AutoLaunchBuilder;
 use hotkey::HotkeyEvent;
@@ -66,8 +66,15 @@ fn main() {
     for monitor in &monitors {
         let id = MonitorId::from_monitor(monitor);
         let pos_key = DisplayConfig::make_position_key(monitor.position(), monitor.size());
-        println!("Registering monitor: {:?} with pos_key: {}", id, pos_key);
-        state.add_display_with_pos(id, pos_key);
+        
+        // 【追加】カテゴリと PPI を自動検出
+        let (category, ppi) = platform::detect_display_category(monitor);
+        println!(
+            "Monitor {:?}: category={:?}, ppi={:.1}, pos_key={}",
+            id, category, ppi, pos_key
+        );
+
+        state.add_display_with_pos_and_profile(id, pos_key, category, ppi);
     }
     
     let mut overlays = overlay::create_all(&event_loop, monitors, &state, &gpu);
@@ -302,6 +309,35 @@ fn main() {
                         }
                     }
                 }
+            } else if id.starts_with(MENU_ID_CATEGORY_PREFIX) {
+                let rest = &id[MENU_ID_CATEGORY_PREFIX.len()..];
+                let parts: Vec<&str> = rest.split(':').collect();
+                if parts.len() == 2 {
+                    let id_str = parts[0];
+                    let cat_str = parts[1];
+                    if id_str.starts_with("0x") {
+                        if let Ok(val) = u64::from_str_radix(&id_str[2..], 16) {
+                            let monitor_id = MonitorId(val);
+                            let category = match cat_str {
+                                "NotebookFhd" => Some(DisplayCategory::NotebookFhd),
+                                "NotebookHiDpi" => Some(DisplayCategory::NotebookHiDpi),
+                                "ExternalLarge4K" => Some(DisplayCategory::ExternalLarge4K),
+                                "ExternalGeneral" => Some(DisplayCategory::ExternalGeneral),
+                                _ => None,
+                            };
+                            if let Some(cat) = category {
+                                println!("Menu: Set Display {:?} Category {:?}", monitor_id, cat);
+                                let profile = crate::display_config::DisplayProfile::from_category(cat);
+                                state.set_display_category(&monitor_id, cat, profile.ppi);
+                                state.save();
+                                overlay::sync_all(&mut overlays, &state, &gpu);
+                                if let Some(ref t) = tray_handle {
+                                    t.rebuild_menu(&state, &overlays);
+                                }
+                            }
+                        }
+                    }
+                }
             } else if id.starts_with(MENU_ID_PANEL_PREFIX) {
                 let rest = &id[MENU_ID_PANEL_PREFIX.len()..];
                 let parts: Vec<&str> = rest.split(':').collect();
@@ -433,6 +469,10 @@ fn main() {
                                 state.set_panel_type(&id, overlay.panel_type);
                             }
                         }
+
+                        // 【追加】カテゴリと PPI を自動検出
+                        let (category, ppi) = platform::detect_display_category(&monitor);
+                        state.set_display_category(&id, category, ppi);
                     }
                 }
                 

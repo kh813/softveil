@@ -16,6 +16,62 @@ pub fn get_monitor_id(monitor: &MonitorHandle) -> MonitorId {
     MonitorId(monitor.hmonitor() as u64)
 }
 
+/// 内蔵ディスプレイ判定
+pub fn is_internal_display(monitor: &MonitorHandle) -> bool {
+    unsafe {
+        let hmonitor = monitor.hmonitor() as HMONITOR;
+        let mut info: MONITORINFOEXW = std::mem::zeroed();
+        info.monitorInfo.cbSize = std::mem::size_of::<MONITORINFOEXW>() as u32;
+        if GetMonitorInfoW(hmonitor, &mut info.monitorInfo as *mut _ as *mut _) == 0 {
+            return false;
+        }
+
+        let mut device: DISPLAY_DEVICEW = std::mem::zeroed();
+        device.cb = std::mem::size_of::<DISPLAY_DEVICEW>() as u32;
+        
+        if EnumDisplayDevicesW(info.szDevice.as_ptr(), 0, &mut device, 0) != 0 {
+            let name = String::from_utf16_lossy(&device.DeviceString).to_uppercase();
+            if name.contains("EDP") || name.contains("INTERNAL") || name.contains("INTEGRATED") || name.contains("LAPTOP") {
+                return true;
+            }
+        }
+        
+        // Fallback: Check if it's the primary device and has a laptop-like name
+        (device.StateFlags & DISPLAY_DEVICE_PRIMARY_DEVICE) != 0 && 
+        monitor.name().map(|n| n.to_uppercase().contains("INTERNAL")).unwrap_or(false)
+    }
+}
+
+/// GetDeviceCaps(HORZSIZE / VERTSIZE) でmm単位の物理サイズを取得する
+pub fn get_physical_size_mm(monitor: &MonitorHandle) -> Option<(f32, f32)> {
+    unsafe {
+        let hmonitor = monitor.hmonitor() as HMONITOR;
+        let mut info: MONITORINFOEXW = std::mem::zeroed();
+        info.monitorInfo.cbSize = std::mem::size_of::<MONITORINFOEXW>() as u32;
+        if GetMonitorInfoW(hmonitor, &mut info.monitorInfo as *mut _ as *mut _) == 0 {
+            return None;
+        }
+
+        let hdc = CreateDCW(
+            info.szDevice.as_ptr(),
+            info.szDevice.as_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+        );
+        if hdc.is_null() { return None; }
+        
+        let w_mm = GetDeviceCaps(hdc, HORZSIZE) as f32;
+        let h_mm = GetDeviceCaps(hdc, VERTSIZE) as f32;
+        DeleteDC(hdc);
+        
+        if w_mm > 0.0 && h_mm > 0.0 {
+            Some((w_mm, h_mm))
+        } else {
+            None
+        }
+    }
+}
+
 pub struct HotplugGuard {
     hwnd: SendHWND,
     thread_handle: Option<thread::JoinHandle<()>>,

@@ -9,6 +9,7 @@ pub const MENU_ID_DISPLAY_TOGGLE_PREFIX: &str = "display_toggle:";
 pub const MENU_ID_ALPHA_PREFIX: &str = "alpha:";
 pub const MENU_ID_MODE_PREFIX: &str = "mode:";
 pub const MENU_ID_PANEL_PREFIX: &str = "panel:";
+pub const MENU_ID_CATEGORY_PREFIX: &str = "category:";
 pub const MENU_ID_INTENSITY_PREFIX: &str = "intensity:";
 pub const MENU_ID_AUTO_START: &str = "auto_start";
 pub const MENU_ID_AI_DETECTION: &str = "ai_detection";
@@ -79,6 +80,21 @@ fn build_menu(state: &AppState, overlays: &[OverlayWindow]) -> Menu {
         
         let config = state.displays.get(&overlay.monitor_id).cloned().unwrap_or_default();
 
+        let category_label = match config.display_category {
+            crate::display_config::DisplayCategory::NotebookFhd      => "ノートPC FHD",
+            crate::display_config::DisplayCategory::NotebookHiDpi    => "ノートPC 高解像度",
+            crate::display_config::DisplayCategory::ExternalLarge4K  => "外付け大型 4K",
+            crate::display_config::DisplayCategory::ExternalGeneral  => "外付け 標準",
+            crate::display_config::DisplayCategory::Unknown          => "不明",
+        };
+        let category_info_item = MenuItem::with_id(
+            "category_info",
+            format!("画面タイプ: {} (PPI: {:.0})", category_label, config.ppi),
+            false,
+            None,
+        );
+        let _ = display_menu.append(&category_info_item);
+
         let toggle_item = CheckMenuItem::with_id(
             format!("{}{}", MENU_ID_DISPLAY_TOGGLE_PREFIX, id_str),
             "フィルターを有効",
@@ -87,6 +103,25 @@ fn build_menu(state: &AppState, overlays: &[OverlayWindow]) -> Menu {
             None,
         );
         let _ = display_menu.append(&toggle_item);
+
+        let category_submenu = Submenu::new("画面タイプを変更", true);
+        let categories = [
+            (crate::display_config::DisplayCategory::NotebookFhd,     "ノートPC FHD (14インチ 1080p)"),
+            (crate::display_config::DisplayCategory::NotebookHiDpi,   "ノートPC 高解像度 (14インチ 2K/Retina)"),
+            (crate::display_config::DisplayCategory::ExternalLarge4K, "外付け大型 4K (27〜32インチ 4K)"),
+            (crate::display_config::DisplayCategory::ExternalGeneral, "外付け 標準 (24インチ FHD/QHD)"),
+        ];
+        for (cat, label) in categories {
+            let item = CheckMenuItem::with_id(
+                format!("{}{}:{:?}", MENU_ID_CATEGORY_PREFIX, id_str, cat),
+                label,
+                true,
+                config.display_category == cat,
+                None,
+            );
+            let _ = category_submenu.append(&item);
+        }
+        let _ = display_menu.append(&category_submenu);
 
         let panel_submenu = Submenu::new(format!("パネル種別 ({})", config.panel_type.to_str()), true);
         let panels = [

@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use crate::display_config::{DisplayConfig, MonitorId, FilterMode};
+use crate::display_config::{DisplayConfig, MonitorId, FilterMode, DisplayCategory};
 use serde::{Serialize, Deserialize};
 
 const APP_NAME: &str = "softveil";
@@ -51,6 +51,8 @@ impl AppState {
                 panel_type: crate::display_config::PanelType::Unknown,
                 filter_intensity: 1.0,
                 position_key: String::new(),
+                display_category: DisplayCategory::Unknown,
+                ppi: 110.0,
             },
             auto_start: config.auto_start,
             ai_detection_enabled: config.ai_detection_enabled,
@@ -160,16 +162,47 @@ impl AppState {
         }
     }
 
+    pub fn display_category(&self, id: &MonitorId) -> DisplayCategory {
+        self.displays.get(id)
+            .map(|c| c.display_category)
+            .unwrap_or(DisplayCategory::Unknown)
+    }
+
+    pub fn set_display_category(&mut self, id: &MonitorId, category: DisplayCategory, ppi: f32) {
+        if let Some(config) = self.displays.get_mut(id) {
+            config.display_category = category;
+            config.ppi = ppi;
+        }
+    }
+
     pub fn add_display(&mut self, id: MonitorId, config: Option<DisplayConfig>) {
         let config = config.unwrap_or_else(|| self.default_config.clone());
         self.displays.insert(id, config);
     }
 
-    pub fn add_display_with_pos(&mut self, id: MonitorId, pos_key: String) {
+    pub fn add_display_with_pos_and_profile(
+        &mut self,
+        id: MonitorId,
+        pos_key: String,
+        category: DisplayCategory,
+        ppi: f32,
+    ) {
         let mut config = self.stored_display_settings.get(&pos_key).cloned().unwrap_or_else(|| {
             self.default_config.clone()
         });
         config.position_key = pos_key;
+
+        // 保存済み設定が Unknown の場合のみ自動検出値で上書き
+        if config.display_category == DisplayCategory::Unknown {
+            config.display_category = category;
+            config.ppi = ppi;
+        }
+
+        // パネル種別の推奨フィルターモードも Unknown の場合に適用
+        if config.filter_mode == FilterMode::BlackLayer {
+            config.filter_mode = config.panel_type.recommended_filter_mode();
+        }
+
         self.displays.insert(id, config);
     }
 

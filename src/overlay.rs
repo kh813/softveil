@@ -54,9 +54,14 @@ struct Uniforms {
     height: f32,
     panel_type: u32, // 0: Unknown, 1: Oled, 2: LcdIps, 3: LcdTn
     refresh_rate: u32,
-    intensity: f32, // Added filter intensity (0.5 - 2.0)
-    bidirectional: u32, // 0: Vertical only, 1: Grid
-    _padding: [u32; 2], // Pad to 48 bytes (16-byte aligned)
+    intensity: f32,
+    bidirectional: u32,
+    // 【追加】物理サイズ適応パラメータ
+    period_px: f32,
+    scroll_speed_px: f32,
+    cover_ratio: f32,
+    phase_flip_hz: f32,
+    _padding: [u32; 3], // Pad to 64 bytes (16-byte aligned)
 }
 
 pub struct OverlayWindow {
@@ -226,6 +231,13 @@ impl OverlayWindow {
 
     pub fn draw(&mut self, gpu: &GpuContext, state: &AppState, alpha: u8) -> Result<(), OverlayError> {
         let size = self.window.inner_size();
+
+        // DisplayProfile を取得
+        let profile = crate::display_config::DisplayProfile::from_category(
+            state.display_category(&self.monitor_id)
+        );
+        let ppi = state.displays.get(&self.monitor_id).map(|c| c.ppi).unwrap_or(110.0);
+
         let uniforms = Uniforms {
             time: self.start_time.elapsed().as_secs_f32(),
             mode: match state.filter_mode(&self.monitor_id) {
@@ -252,7 +264,11 @@ impl OverlayWindow {
                 crate::display_config::PanelType::LcdTn => 0,
                 crate::display_config::PanelType::Unknown => 1,
             },
-            _padding: [0; 2],
+            period_px: profile.period_px(ppi),
+            scroll_speed_px: profile.scroll_speed_px(ppi),
+            cover_ratio: profile.cover_ratio,
+            phase_flip_hz: profile.phase_flip_hz,
+            _padding: [0; 3],
         };
         gpu.queue.write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[uniforms]));
 

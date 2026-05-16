@@ -26,8 +26,14 @@ struct Uniforms {
     refresh_rate: u32,
     intensity: f32,
     bidirectional: u32,
+    // 【追加】物理サイズ適応パラメータ
+    period_px: f32,
+    scroll_speed_px: f32,
+    cover_ratio: f32,
+    phase_flip_hz: f32,
     _pad0: u32,
     _pad1: u32,
+    _pad2: u32,
 };
 
 @group(0) @binding(0)
@@ -38,28 +44,24 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let x = in.tex_coords.x * uniforms.width;
     let y = in.tex_coords.y * uniforms.height;
 
-    // Bug Fix 1: Determine scroll speed with clear conditional logic
-    var scroll_speed: f32 = 300.0; // Default for Unknown (0u)
-    if (uniforms.panel_type == 1u) {
-        scroll_speed = 0.2;    // OLED: Burn-in protection
-    } else if (uniforms.panel_type == 2u) {
-        scroll_speed = 600.0;  // LCD IPS: High speed
-    } else if (uniforms.panel_type == 3u) {
-        scroll_speed = 300.0;  // LCD TN: Medium speed
-    }
-
-    // Improvement E: Intensity scales coverage ratio, not physical size
-    let period: f32 = 6.0; 
-    let cover_ratio = clamp(0.8 / max(uniforms.intensity, 0.1), 0.3, 0.9);
+    // 【変更】物理サイズ適応パラメータを使用
+    // intensity はユーザー設定の倍率として乗算（1.0=標準、0.5=高密度、2.0=低密度）
+    let period = uniforms.period_px * uniforms.intensity;
+    let cover_ratio = clamp(uniforms.cover_ratio, 0.3, 0.9);
     let stripe_width = period * cover_ratio;
-    let edge_px: f32 = 1.5; // Improvement D: Edge blur width
+    let scroll_speed = uniforms.scroll_speed_px;
+
+    // OLED のバーンイン防止オフセット
+    let burn_in_offset = select(0.0, uniforms.time * 0.2, uniforms.panel_type == 1u);
+
+    let edge_px: f32 = max(1.5, period * 0.08); // エッジブラーも周期に比例させる
 
     if (uniforms.mode == 0u) {
         // BlackLayer: Uniform coverage
         return vec4<f32>(0.0, 0.0, 0.0, uniforms.alpha);
 
     } else if (uniforms.mode == 1u) {
-        // VerticalLouver Improvement A, D, E
+        // VerticalLouver
         let scrolled_y = (y + uniforms.time * scroll_speed) % period;
         let dist_y = min(scrolled_y, period - scrolled_y);
         
@@ -69,7 +71,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             let dist_from_edge = min(stripe_width - scrolled_y, scrolled_y);
             alpha_out = uniforms.alpha * select(1.0, dist_from_edge / edge_px, dist_from_edge < edge_px);
         } else {
-            // Transparent area with low-luminance gray (Improvement A)
+            // Transparent area with low-luminance gray
             let gap_y = scrolled_y - stripe_width;
             let gap_period = period - stripe_width;
             let dist_from_gap_edge = min(gap_y, gap_period - gap_y);
@@ -78,7 +80,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         }
 
         if (uniforms.bidirectional == 1u) {
-            let scrolled_x = (x + uniforms.time * scroll_speed * 0.7) % period;
+            let scrolled_x = (x + uniforms.time * scroll_speed * 0.7 + burn_in_offset) % period;
             let dist_x = min(scrolled_x, period - scrolled_x);
             var alpha_x: f32;
             if (scrolled_x < stripe_width) {
@@ -93,20 +95,19 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         return vec4<f32>(0.0, 0.0, 0.0, alpha_out);
 
     } else if (uniforms.mode == 2u) {
-        // FastVibration Improvement B (Double Layer Moiré)
-        let phase = f32(u32(uniforms.time * 30.0) % 2u) * period * 0.5;
+        // FastVibration
+        let phase = f32(u32(uniforms.time * uniforms.phase_flip_hz) % 2u) * period * 0.5;
         let scrolled_y = (y + uniforms.time * scroll_speed + phase) % period;
         let blocked_primary = scrolled_y < stripe_width;
 
-        // Layer 2: Different period/speed/diagonal (Improvement B)
         let period2 = period * 1.5;
         let stripe2 = stripe_width * 1.2;
         let scrolled_diag = ((x * 0.5 + y) + uniforms.time * scroll_speed * 0.6) % period2;
         let blocked_secondary = scrolled_diag < stripe2;
 
         var blocked = blocked_primary;
-        if (uniforms.bidirectional == 1u) { // Bug Fix 2: Respect bidirectional
-            let scrolled_x = (x + phase) % period;
+        if (uniforms.bidirectional == 1u) {
+            let scrolled_x = (x + phase + burn_in_offset) % period;
             blocked = blocked || (scrolled_x < stripe_width);
         }
 
@@ -115,11 +116,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         } else if (blocked_secondary) {
             return vec4<f32>(0.0, 0.0, 0.0, uniforms.alpha * 0.4);
         } else {
-            return vec4<f32>(0.0, 0.0, 0.0, uniforms.alpha * 0.05); // Subtle base for moiré
+            return vec4<f32>(0.0, 0.0, 0.0, uniforms.alpha * 0.05);
         }
 
     } else if (uniforms.mode == 3u) {
-        // AsymmetricCurve Improvement C (Dynamic Threshold)
+        // AsymmetricCurve
         let scale = 0.15 / max(uniforms.intensity, 0.1);
         let threshold = -0.3 + uniforms.intensity * 0.4;
         let val = sin(x * scale + uniforms.time * 5.0)

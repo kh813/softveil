@@ -19,6 +19,40 @@ pub fn get_monitor_id(monitor: &MonitorHandle) -> MonitorId {
     MonitorId(monitor.native_id() as u64)
 }
 
+/// 内蔵ディスプレイかどうかを判定する
+pub fn is_internal_display(monitor: &MonitorHandle) -> bool {
+    // 方法A: CGMainDisplayID との比較 (クラムシェル時は外付けがメインになるので注意が必要)
+    // より確実には IOKit や system_profiler を使うべきだが、ここでは基本ロジックを実装
+    #[link(name = "CoreGraphics", kind = "framework")]
+    extern "C" {
+        fn CGDisplayIsBuiltin(display: u32) -> i32;
+    }
+    unsafe {
+        let id = get_monitor_id(monitor).0 as u32;
+        CGDisplayIsBuiltin(id) != 0
+    }
+}
+
+/// (mm, mm) = (width_mm, height_mm) を返す。取得できない場合は None。
+pub fn get_physical_size_mm(monitor: &MonitorHandle) -> Option<(f32, f32)> {
+    #[link(name = "CoreGraphics", kind = "framework")]
+    extern "C" {
+        fn CGDisplayScreenSize(display: u32) -> CGSize;
+    }
+    #[repr(C)]
+    struct CGSize { width: f64, height: f64 }
+
+    unsafe {
+        let id = get_monitor_id(monitor).0 as u32;
+        let size = CGDisplayScreenSize(id);
+        if size.width > 0.0 && size.height > 0.0 {
+            Some((size.width as f32, size.height as f32))
+        } else {
+            None
+        }
+    }
+}
+
 pub fn apply_overlay_settings(window: &Window, alpha: u8) {
     let ns_window = window.ns_window() as *mut NSWindow;
     unsafe {
