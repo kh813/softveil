@@ -53,7 +53,8 @@ struct Uniforms {
     width: f32,
     height: f32,
     panel_type: u32, // 0: Unknown, 1: Oled, 2: LcdIps, 3: LcdTn
-    _padding: [u32; 2], // Padding to 16-byte alignment
+    refresh_rate: u32,
+    _padding: [u32; 1], // Padding to 16-byte alignment
 }
 
 pub struct OverlayWindow {
@@ -67,6 +68,7 @@ pub struct OverlayWindow {
     pub bind_group: wgpu::BindGroup,
     pub start_time: std::time::Instant,
     pub panel_type: crate::display_config::PanelType,
+    pub refresh_rate: u32,
 }
 
 #[derive(Debug)]
@@ -203,6 +205,8 @@ impl OverlayWindow {
             multiview: None,
         });
 
+        let refresh_rate = monitor.video_modes().next().map(|m| m.refresh_rate() as u32).unwrap_or(60);
+
         Ok(Self {
             monitor_id,
             monitor_name,
@@ -214,6 +218,7 @@ impl OverlayWindow {
             bind_group,
             start_time: std::time::Instant::now(),
             panel_type: platform::detect_panel_type(monitor),
+            refresh_rate,
         })
     }
 
@@ -236,7 +241,8 @@ impl OverlayWindow {
                 crate::display_config::PanelType::LcdIps => 2,
                 crate::display_config::PanelType::LcdTn => 3,
             },
-            _padding: [0; 2],
+            refresh_rate: self.refresh_rate,
+            _padding: [0; 1],
         };
         gpu.queue.write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[uniforms]));
 

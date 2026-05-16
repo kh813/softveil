@@ -89,7 +89,7 @@ fn build_menu(state: &AppState, overlays: &[OverlayWindow]) -> Menu {
 
         let panel_submenu = Submenu::new(format!("パネル種別 ({})", config.panel_type.to_str()), true);
         let panels = [
-            (crate::display_config::PanelType::Unknown, "自動判定 (Unknown)"),
+            (crate::display_config::PanelType::Unknown, "Unknown (不明)"),
             (crate::display_config::PanelType::Oled, "OLED (有機EL)"),
             (crate::display_config::PanelType::LcdIps, "LCD IPS (液晶)"),
             (crate::display_config::PanelType::LcdTn, "LCD TN (液晶)"),

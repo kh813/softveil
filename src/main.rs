@@ -51,8 +51,13 @@ fn main() {
             .build()
             .unwrap()
             .block_on(async {
-                println!("Requesting screen capture access...");
-                let _ = CaptureStream::request_access(false).await;
+                // Only request access if we don't already have it (to avoid redundant prompts on macOS)
+                if CaptureStream::test_access(false).is_none() {
+                    println!("Requesting screen capture access...");
+                    let _ = CaptureStream::request_access(false).await;
+                } else {
+                    println!("Screen capture access already granted.");
+                }
             });
     }
     

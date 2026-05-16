@@ -308,8 +308,8 @@ Windows 環境では `EnumDisplayDevices` およびレジストリからの EDID
 
 | パネル | 推奨モード (`FilterMode`) | 特徴 |
 |:---|:---|:---|
-| **OLED** | `VerticalLouver` | 黒が完全に沈むため静止画で十分。バーンインドリフト適用。 |
-| **LCD IPS** | `FastVibration` | バックライト漏れを抑えるため位相反転 + スクロールを併用。 |
+| **OLED** | `VerticalLouver` | 2px幅のストライプに微細な空間ノイズを加え、視野角による輝度偏移を効率的に破壊。 |
+| **LCD IPS** | `FastVibration` | モニターの描画限界に配慮した30Hzチェッカーボード振動により、ブラックアウトを防ぎつつ視覚的な干渉を実現。 |
 | **LCD TN** | `AsymmetricCurve` | 視野角が元々狭いため、水平方向よりも垂直方向の妨害を優先。 |
 
 ---

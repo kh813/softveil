@@ -23,6 +23,7 @@ struct Uniforms {
     width: f32,
     height: f32,
     panel_type: u32, // 0: Unknown, 1: Oled, 2: LcdIps, 3: LcdTn
+    refresh_rate: u32, // Added refresh rate for temporal synchronization
 };
 
 @group(0) @binding(0)
@@ -33,46 +34,52 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var x_pixel = in.tex_coords.x * uniforms.width;
     var y_pixel = in.tex_coords.y * uniforms.height;
 
-    // Panel-specific hacks
+    // Panel-specific hacks (Anti-Burn-in / Response optimization)
     if (uniforms.panel_type == 1u) {
-        // OLED Anti-Burn-in: Shift the pattern slightly over time
-        let shift_x = sin(uniforms.time * 0.1) * 2.0;
-        let shift_y = cos(uniforms.time * 0.1) * 2.0;
+        // OLED Anti-Burn-in: Slow pixel shift
+        let shift_x = sin(uniforms.time * 0.05) * 1.5;
+        let shift_y = cos(uniforms.time * 0.05) * 1.5;
         x_pixel += shift_x;
         y_pixel += shift_y;
     } else if (uniforms.panel_type == 2u) {
-        // LCD IPS: Phase inversion + slight scroll to bypass liquid crystal response
-        let phase = f32(u32(uniforms.time * 30.0) % 2u) * 3.14159;
-        x_pixel += sin(uniforms.time * 0.5 + phase) * 1.0;
+        // LCD IPS: Gentle scroll to prevent liquid crystal "sticking"
+        x_pixel += uniforms.time * 2.0;
     } else if (uniforms.panel_type == 3u) {
-        // LCD TN: Vertical scroll to exploit poor vertical viewing angles
-        y_pixel += uniforms.time * 10.0;
+        // LCD TN: Vertical scroll
+        y_pixel += uniforms.time * 5.0;
     }
 
     if (uniforms.mode == 0u) {
         // Black Layer
         return vec4<f32>(0.0, 0.0, 0.0, 1.0);
     } else if (uniforms.mode == 1u) {
-        // Louver (Vertical stripes)
-        if (u32(x_pixel) % 2u == 0u) {
+        // IMPROVED Louver (Vertical stripes with noise)
+        // Add a micro-stagger to the louver to disrupt modern pixel arrays
+        let stripe_width = 2.0; 
+        let noise = sin(y_pixel * 0.5 + uniforms.time) * 0.5;
+        if (u32(x_pixel + noise) % u32(stripe_width * 2.0) < u32(stripe_width)) {
             return vec4<f32>(0.0, 0.0, 0.0, 1.0);
         } else {
             discard;
         }
     } else if (uniforms.mode == 2u) {
-        // High Speed Motion Masking (Vibrating pattern)
-        // Shift by 1px every other frame (or based on time)
-        let offset = f32(u32(uniforms.time * 60.0) % 2u);
-        if (u32(x_pixel + offset) % 2u == 0u) {
+        // IMPROVED Fast Vibration (Temporal Interference)
+        // Instead of 60Hz (which causes blackout/flicker), use a slower interference frequency
+        // matched to typical human flicker fusion threshold (~30-40Hz)
+        let target_hz = 30.0;
+        let toggle = f32(u32(uniforms.time * target_hz) % 2u);
+        
+        // Checkerboard pattern that flips
+        let checker = u32(x_pixel + toggle) % 2u ^ u32(y_pixel) % 2u;
+        if (checker == 0u) {
             return vec4<f32>(0.0, 0.0, 0.0, 1.0);
         } else {
             discard;
         }
     } else if (uniforms.mode == 3u) {
-        // Asymmetric Curve (Conceptual implementation)
-        // A complex pattern that makes it hard to read from angles
-        let scale = 0.1;
-        let val = sin(x_pixel * scale) + cos(y_pixel * scale + uniforms.time);
+        // IMPROVED Asymmetric Curve
+        let scale = 0.2;
+        let val = sin(x_pixel * scale + uniforms.time * 0.5) * cos(y_pixel * scale - uniforms.time * 0.3);
         if (val > 0.0) {
             return vec4<f32>(0.0, 0.0, 0.0, 1.0);
         } else {
