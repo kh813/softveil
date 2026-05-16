@@ -281,6 +281,7 @@ fn main() {
                                 "FastVibration" => Some(FilterMode::FastVibration),
                                 "AsymmetricCurve" => Some(FilterMode::AsymmetricCurve),
                                 "AIOcrInterference" => Some(FilterMode::AIOcrInterference),
+                                "LcdContrastJammer" => Some(FilterMode::LcdContrastJammer),
                                 _ => None,
                             };
                             if let Some(m) = mode {

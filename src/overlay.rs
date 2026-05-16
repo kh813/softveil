@@ -48,7 +48,7 @@ impl GpuContext {
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct Uniforms {
     time: f32,
-    mode: u32, // 0: Black, 1: Louver, 2: HighSpeed, 3: Asymmetric, 4: AIOcr
+    mode: u32, // 0: Black, 1: Louver, 2: HighSpeed, 3: Asymmetric, 4: AIOcr, 5: LcdContrastJammer
     alpha: f32,
     width: f32,
     height: f32,
@@ -56,12 +56,16 @@ struct Uniforms {
     refresh_rate: u32,
     intensity: f32,
     bidirectional: u32,
-    // 【追加】物理サイズ適応パラメータ
+    // 物理サイズ適応パラメータ
     period_px: f32,
     scroll_speed_px: f32,
     cover_ratio: f32,
     phase_flip_hz: f32,
-    _padding: [u32; 3], // Pad to 64 bytes (16-byte aligned)
+    // LCD コントラストジャマー用
+    grid_period_px: f32,
+    luminance_compress: f32,
+    hatch_angle: f32,
+    _pad0: u32, // 16-byte alignment
 }
 
 pub struct OverlayWindow {
@@ -237,6 +241,7 @@ impl OverlayWindow {
             state.display_category(&self.monitor_id)
         );
         let ppi = state.displays.get(&self.monitor_id).map(|c| c.ppi).unwrap_or(110.0);
+        let luminance_compress = (0.20 / profile.intensity_scale()).clamp(0.10, 0.35);
 
         let uniforms = Uniforms {
             time: self.start_time.elapsed().as_secs_f32(),
@@ -246,6 +251,7 @@ impl OverlayWindow {
                 FilterMode::FastVibration => 2,
                 FilterMode::AsymmetricCurve => 3,
                 FilterMode::AIOcrInterference => 4,
+                FilterMode::LcdContrastJammer => 5,
             },
             alpha: alpha as f32 / 255.0,
             width: size.width as f32,
@@ -268,7 +274,10 @@ impl OverlayWindow {
             scroll_speed_px: profile.scroll_speed_px(ppi),
             cover_ratio: profile.cover_ratio,
             phase_flip_hz: profile.phase_flip_hz,
-            _padding: [0; 3],
+            grid_period_px: profile.period_px(ppi),
+            luminance_compress,
+            hatch_angle: std::f32::consts::FRAC_PI_4,
+            _pad0: 0,
         };
         gpu.queue.write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[uniforms]));
 

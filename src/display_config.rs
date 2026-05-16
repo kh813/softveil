@@ -11,6 +11,7 @@ pub enum FilterMode {
     FastVibration,
     AsymmetricCurve,
     AIOcrInterference,
+    LcdContrastJammer,
 }
 
 /// ディスプレイの用途・サイズカテゴリ
@@ -103,6 +104,17 @@ impl DisplayProfile {
         let ppi = if ppi > 0.0 { ppi } else { self.ppi };
         self.scroll_speed_mm_per_sec * ppi / 25.4
     }
+
+    /// LCD コントラストジャマー用: intensity スケール係数
+    pub fn intensity_scale(&self) -> f32 {
+        match self.category {
+            DisplayCategory::NotebookFhd     => 1.0,
+            DisplayCategory::NotebookHiDpi   => 0.8,
+            DisplayCategory::ExternalLarge4K => 1.4,
+            DisplayCategory::ExternalGeneral => 1.1,
+            DisplayCategory::Unknown         => 1.0,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -126,7 +138,7 @@ impl PanelType {
     pub fn recommended_filter_mode(&self) -> FilterMode {
         match self {
             PanelType::Oled => FilterMode::VerticalLouver,
-            PanelType::LcdIps => FilterMode::FastVibration,
+            PanelType::LcdIps => FilterMode::LcdContrastJammer,
             PanelType::LcdTn => FilterMode::AsymmetricCurve,
             PanelType::Unknown => FilterMode::BlackLayer,
         }

@@ -144,11 +144,12 @@ fn build_menu(state: &AppState, overlays: &[OverlayWindow]) -> Menu {
 
         let mode_submenu = Submenu::new("フィルター形式", true);
         let modes = [
-            (FilterMode::BlackLayer, "単色レイヤー"),
-            (FilterMode::VerticalLouver, "縦縞ルーバー"),
-            (FilterMode::FastVibration, "高速動体マスキング"),
-            (FilterMode::AsymmetricCurve, "非対称曲線パターン"),
-            (FilterMode::AIOcrInterference, "AI OCR 妨害テクスチャ"),
+            (FilterMode::BlackLayer,          "単色レイヤー"),
+            (FilterMode::VerticalLouver,      "縦縞ルーバー"),
+            (FilterMode::FastVibration,       "高速動体マスキング"),
+            (FilterMode::AsymmetricCurve,     "非対称曲線パターン"),
+            (FilterMode::AIOcrInterference,   "AI OCR 妨害テクスチャ"),
+            (FilterMode::LcdContrastJammer,   "LCD 視野角コントラスト妨害 ✦"),
         ];
         for (mode, label) in modes {
             let item = CheckMenuItem::with_id(
