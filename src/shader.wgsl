@@ -24,6 +24,7 @@ struct Uniforms {
     height: f32,
     panel_type: u32, // 0: Unknown, 1: Oled, 2: LcdIps, 3: LcdTn
     refresh_rate: u32, // Added refresh rate for temporal synchronization
+    intensity: f32, // Added intensity scale (0.5 - 2.0)
 };
 
 @group(0) @binding(0)
@@ -54,8 +55,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         return vec4<f32>(0.0, 0.0, 0.0, 1.0);
     } else if (uniforms.mode == 1u) {
         // IMPROVED Louver (Vertical stripes with noise)
-        // Add a micro-stagger to the louver to disrupt modern pixel arrays
-        let stripe_width = 2.0; 
+        // intensity: stripe width multiplier (lower = denser = more privacy)
+        let stripe_width = 2.0 * uniforms.intensity; 
         let noise = sin(y_pixel * 0.5 + uniforms.time) * 0.5;
         if (u32(x_pixel + noise) % u32(stripe_width * 2.0) < u32(stripe_width)) {
             return vec4<f32>(0.0, 0.0, 0.0, 1.0);
@@ -64,13 +65,13 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         }
     } else if (uniforms.mode == 2u) {
         // IMPROVED Fast Vibration (Temporal Interference)
-        // Instead of 60Hz (which causes blackout/flicker), use a slower interference frequency
-        // matched to typical human flicker fusion threshold (~30-40Hz)
+        // intensity: checker size multiplier
+        let checker_size = 2.0 * uniforms.intensity;
         let target_hz = 30.0;
         let toggle = f32(u32(uniforms.time * target_hz) % 2u);
         
         // Checkerboard pattern that flips
-        let checker = u32(x_pixel + toggle) % 2u ^ u32(y_pixel) % 2u;
+        let checker = u32((x_pixel + toggle) / checker_size) % 2u ^ u32(y_pixel / checker_size) % 2u;
         if (checker == 0u) {
             return vec4<f32>(0.0, 0.0, 0.0, 1.0);
         } else {
@@ -78,7 +79,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         }
     } else if (uniforms.mode == 3u) {
         // IMPROVED Asymmetric Curve
-        let scale = 0.2;
+        // intensity: spatial frequency multiplier
+        let scale = 0.2 / uniforms.intensity;
         let val = sin(x_pixel * scale + uniforms.time * 0.5) * cos(y_pixel * scale - uniforms.time * 0.3);
         if (val > 0.0) {
             return vec4<f32>(0.0, 0.0, 0.0, 1.0);

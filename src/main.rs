@@ -11,7 +11,7 @@ mod ai_detection;
 
 use app::AppState;
 use display_config::{MonitorId, DisplayConfig, DisconnectedCache, FilterMode};
-use tray::{TrayHandle, MENU_ID_GLOBAL_TOGGLE, MENU_ID_DISPLAY_TOGGLE_PREFIX, MENU_ID_ALPHA_PREFIX, MENU_ID_MODE_PREFIX, MENU_ID_PANEL_PREFIX, MENU_ID_AUTO_START, MENU_ID_AI_DETECTION, MENU_ID_QUIT};
+use tray::{TrayHandle, MENU_ID_GLOBAL_TOGGLE, MENU_ID_DISPLAY_TOGGLE_PREFIX, MENU_ID_ALPHA_PREFIX, MENU_ID_MODE_PREFIX, MENU_ID_PANEL_PREFIX, MENU_ID_INTENSITY_PREFIX, MENU_ID_AUTO_START, MENU_ID_AI_DETECTION, MENU_ID_QUIT};
 use ai_detection::{AIDetectionCommand, start_detection_thread};
 use auto_launch::AutoLaunchBuilder;
 use hotkey::HotkeyEvent;
@@ -43,7 +43,29 @@ fn main() {
     let proxy = event_loop.create_proxy();
 
     // Phase 5: Initialize Screen Capture access (experimental)
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    #[cfg(target_os = "macos")]
+    {
+        #[link(name = "CoreGraphics", kind = "framework")]
+        extern "C" {
+            fn CGPreflightScreenCaptureAccess() -> bool;
+        }
+
+        use crabgrab::prelude::*;
+        if unsafe { !CGPreflightScreenCaptureAccess() } {
+            println!("Requesting screen capture access...");
+            tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(async {
+                    let _ = CaptureStream::request_access(false).await;
+                });
+        } else {
+            println!("Screen capture access already granted.");
+        }
+    }
+    
+    #[cfg(target_os = "windows")]
     {
         use crabgrab::prelude::*;
         tokio::runtime::Builder::new_multi_thread()
@@ -51,13 +73,7 @@ fn main() {
             .build()
             .unwrap()
             .block_on(async {
-                // Only request access if we don't already have it (to avoid redundant prompts on macOS)
-                if CaptureStream::test_access(false).is_none() {
-                    println!("Requesting screen capture access...");
-                    let _ = CaptureStream::request_access(false).await;
-                } else {
-                    println!("Screen capture access already granted.");
-                }
+                let _ = CaptureStream::request_access(false).await;
             });
     }
     
@@ -285,6 +301,27 @@ fn main() {
                             if let Some(p) = panel_type {
                                 println!("Menu: Set Display {:?} Panel Type {:?}", monitor_id, p);
                                 state.set_panel_type(&monitor_id, p);
+                                state.save();
+                                overlay::sync_all(&mut overlays, &state, &gpu);
+                                if let Some(ref t) = tray_handle {
+                                    t.rebuild_menu(&state, &overlays);
+                                }
+                            }
+                        }
+                    }
+                }
+            } else if id.starts_with(MENU_ID_INTENSITY_PREFIX) {
+                let rest = &id[MENU_ID_INTENSITY_PREFIX.len()..];
+                let parts: Vec<&str> = rest.split(':').collect();
+                if parts.len() == 2 {
+                    let id_str = parts[0];
+                    let intensity_str = parts[1];
+                    if id_str.starts_with("0x") {
+                        if let Ok(val) = u64::from_str_radix(&id_str[2..], 16) {
+                            let monitor_id = MonitorId(val);
+                            if let Ok(intensity) = intensity_str.parse::<f32>() {
+                                println!("Menu: Set Display {:?} Filter Intensity {}", monitor_id, intensity);
+                                state.set_filter_intensity(&monitor_id, intensity);
                                 state.save();
                                 overlay::sync_all(&mut overlays, &state, &gpu);
                                 if let Some(ref t) = tray_handle {

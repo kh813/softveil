@@ -54,7 +54,7 @@ struct Uniforms {
     height: f32,
     panel_type: u32, // 0: Unknown, 1: Oled, 2: LcdIps, 3: LcdTn
     refresh_rate: u32,
-    _padding: [u32; 1], // Padding to 16-byte alignment
+    intensity: f32, // Added filter intensity (0.5 - 2.0)
 }
 
 pub struct OverlayWindow {
@@ -242,7 +242,7 @@ impl OverlayWindow {
                 crate::display_config::PanelType::LcdTn => 3,
             },
             refresh_rate: self.refresh_rate,
-            _padding: [0; 1],
+            intensity: state.filter_intensity(&self.monitor_id),
         };
         gpu.queue.write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[uniforms]));
 

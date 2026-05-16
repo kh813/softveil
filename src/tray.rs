@@ -9,6 +9,7 @@ pub const MENU_ID_DISPLAY_TOGGLE_PREFIX: &str = "display_toggle:";
 pub const MENU_ID_ALPHA_PREFIX: &str = "alpha:";
 pub const MENU_ID_MODE_PREFIX: &str = "mode:";
 pub const MENU_ID_PANEL_PREFIX: &str = "panel:";
+pub const MENU_ID_INTENSITY_PREFIX: &str = "intensity:";
 pub const MENU_ID_AUTO_START: &str = "auto_start";
 pub const MENU_ID_AI_DETECTION: &str = "ai_detection";
 pub const MENU_ID_QUIT: &str = "quit";
@@ -124,6 +125,27 @@ fn build_menu(state: &AppState, overlays: &[OverlayWindow]) -> Menu {
             let _ = mode_submenu.append(&item);
         }
         let _ = display_menu.append(&mode_submenu);
+
+        let intensity_submenu = Submenu::new("フィルター強度", true);
+        let intensities = [
+            (0.5f32, "最高 (密度高)"),
+            (0.75f32, "高"),
+            (1.0f32, "標準"),
+            (1.5f32, "低"),
+            (2.0f32, "最低 (密度低)"),
+        ];
+        for (intensity, label) in intensities {
+            let is_checked = (config.filter_intensity * 100.0).round() == (intensity * 100.0).round();
+            let item = CheckMenuItem::with_id(
+                format!("{}{}:{}", MENU_ID_INTENSITY_PREFIX, id_str, intensity),
+                label,
+                true,
+                is_checked,
+                None,
+            );
+            let _ = intensity_submenu.append(&item);
+        }
+        let _ = display_menu.append(&intensity_submenu);
 
         let alpha_submenu = Submenu::new("フィルター濃度", true);
         for i in 1..=9 {

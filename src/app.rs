@@ -49,6 +49,7 @@ impl AppState {
                 alpha: config.default_alpha,
                 filter_mode: config.default_filter_mode,
                 panel_type: crate::display_config::PanelType::Unknown,
+                filter_intensity: 1.0,
                 position_key: String::new(),
             },
             auto_start: config.auto_start,
@@ -130,6 +131,16 @@ impl AppState {
 
     pub fn filter_mode(&self, id: &MonitorId) -> FilterMode {
         self.displays.get(id).map(|c| c.filter_mode).unwrap_or(FilterMode::BlackLayer)
+    }
+
+    pub fn filter_intensity(&self, id: &MonitorId) -> f32 {
+        self.displays.get(id).map(|c| c.filter_intensity).unwrap_or(1.0)
+    }
+
+    pub fn set_filter_intensity(&mut self, id: &MonitorId, intensity: f32) {
+        if let Some(config) = self.displays.get_mut(id) {
+            config.filter_intensity = intensity.clamp(0.1, 5.0);
+        }
     }
 
     pub fn panel_type(&self, id: &MonitorId) -> crate::display_config::PanelType {

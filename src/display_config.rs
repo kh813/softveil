@@ -59,6 +59,7 @@ pub struct DisplayConfig {
     pub alpha: f32,
     pub filter_mode: FilterMode,
     pub panel_type: PanelType,
+    pub filter_intensity: f32, // Phase 5: フィルター強度 (0.5 - 2.0)
     pub position_key: String,
 }
 
@@ -83,6 +84,7 @@ impl Default for DisplayConfig {
             alpha: 0.30,
             filter_mode: FilterMode::BlackLayer,
             panel_type: PanelType::Unknown,
+            filter_intensity: 1.0,
             position_key: String::new(),
         }
     }
