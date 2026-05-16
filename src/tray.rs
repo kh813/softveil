@@ -1,4 +1,5 @@
-use crate::app::{AppState, FilterMode};
+use crate::app::AppState;
+use crate::display_config::FilterMode;
 use crate::overlay::OverlayWindow;
 use tray_icon::{TrayIcon, TrayIconBuilder, Icon};
 use muda::{Menu, MenuItem, Submenu, PredefinedMenuItem, CheckMenuItem};
@@ -70,53 +71,57 @@ fn build_menu(state: &AppState, overlays: &[OverlayWindow]) -> Menu {
 
     let _ = menu.append(&PredefinedMenuItem::separator());
 
-    let display_submenu = Submenu::new("ディスプレイ設定", true);
     for overlay in overlays {
         let id_str = overlay.monitor_id.to_string();
-        let enabled = state.displays.get(&overlay.monitor_id).map(|c| c.enabled).unwrap_or(true);
-        let item = CheckMenuItem::with_id(
+        let display_menu = Submenu::new(&overlay.monitor_name, true);
+        
+        let config = state.displays.get(&overlay.monitor_id).cloned().unwrap_or_default();
+
+        let toggle_item = CheckMenuItem::with_id(
             format!("{}{}", MENU_ID_DISPLAY_TOGGLE_PREFIX, id_str),
-            &overlay.monitor_name,
+            "フィルターを有効",
             true,
-            enabled,
+            config.enabled,
             None,
         );
-        let _ = display_submenu.append(&item);
-    }
-    let _ = menu.append(&display_submenu);
+        let _ = display_menu.append(&toggle_item);
 
-    let alpha_submenu = Submenu::new("フィルター濃度", true);
-    for i in 1..=9 {
-        let alpha_pct = i * 10;
-        // Find if any display has this alpha (just use default_config's alpha for global check)
-        let is_checked = (state.default_config.alpha * 10.0).round() == i as f32;
-        let item = CheckMenuItem::with_id(
-            format!("{}{}", MENU_ID_ALPHA_PREFIX, alpha_pct),
-            &format!("{}%", alpha_pct),
-            true,
-            is_checked,
-            None,
-        );
-        let _ = alpha_submenu.append(&item);
-    }
-    let _ = menu.append(&alpha_submenu);
+        let mode_submenu = Submenu::new("フィルター形式", true);
+        let modes = [
+            (FilterMode::BlackLayer, "単色レイヤー"),
+            (FilterMode::Louver, "縦縞ルーバー"),
+            (FilterMode::HighSpeedMotion, "高速動体マスキング"),
+            (FilterMode::AsymmetricCurve, "非対称曲線パターン"),
+        ];
+        for (mode, label) in modes {
+            let item = CheckMenuItem::with_id(
+                format!("{}{}:{:?}", MENU_ID_MODE_PREFIX, id_str, mode),
+                label,
+                true,
+                config.filter_mode == mode,
+                None,
+            );
+            let _ = mode_submenu.append(&item);
+        }
+        let _ = display_menu.append(&mode_submenu);
 
-    let mode_submenu = Submenu::new("フィルター形式", true);
-    let modes = [
-        (FilterMode::BlackLayer, "単色レイヤー"),
-        (FilterMode::Louver, "縦縞ルーバー"),
-    ];
-    for (mode, label) in modes {
-        let item = CheckMenuItem::with_id(
-            format!("{}{:?}", MENU_ID_MODE_PREFIX, mode),
-            label,
-            true,
-            state.filter_mode == mode,
-            None,
-        );
-        let _ = mode_submenu.append(&item);
+        let alpha_submenu = Submenu::new("フィルター濃度", true);
+        for i in 1..=9 {
+            let alpha_pct = i * 10;
+            let is_checked = (config.alpha * 10.0).round() == i as f32;
+            let item = CheckMenuItem::with_id(
+                format!("{}{}:{}", MENU_ID_ALPHA_PREFIX, id_str, alpha_pct),
+                &format!("{}%", alpha_pct),
+                true,
+                is_checked,
+                None,
+            );
+            let _ = alpha_submenu.append(&item);
+        }
+        let _ = display_menu.append(&alpha_submenu);
+
+        let _ = menu.append(&display_menu);
     }
-    let _ = menu.append(&mode_submenu);
 
     let _ = menu.append(&PredefinedMenuItem::separator());
 

@@ -137,3 +137,8 @@ unsafe fn set_ex_style(hwnd: HWND, additional_flags: u32) {
     SetWindowLongPtrW(hwnd, GWL_EXSTYLE, (current_style | additional_flags as usize) as isize);
 }
 
+pub fn is_oled(_monitor: &MonitorHandle) -> bool {
+    // Conceptual: On Windows, we could use QueryDisplayConfig to find DISPLAYCONFIG_VIDEO_OUTPUT_TECHNOLOGY_OLED
+    false
+}
+

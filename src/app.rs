@@ -1,21 +1,15 @@
 use std::collections::HashMap;
-use crate::display_config::{DisplayConfig, MonitorId};
+use crate::display_config::{DisplayConfig, MonitorId, FilterMode};
 use serde::{Serialize, Deserialize};
 
 const APP_NAME: &str = "softveil";
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum FilterMode {
-    BlackLayer,
-    Louver,
-}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AppConfig {
     pub global_enabled: bool,
     pub default_alpha: f32,
+    pub default_filter_mode: FilterMode,
     pub auto_start: bool,
-    pub filter_mode: FilterMode,
     pub ai_detection_enabled: bool,
     pub display_settings: HashMap<String, DisplayConfig>,
 }
@@ -25,8 +19,8 @@ impl Default for AppConfig {
         Self {
             global_enabled: true,
             default_alpha: 0.30,
+            default_filter_mode: FilterMode::BlackLayer,
             auto_start: false,
-            filter_mode: FilterMode::BlackLayer,
             ai_detection_enabled: false,
             display_settings: HashMap::new(),
         }
@@ -38,7 +32,6 @@ pub struct AppState {
     pub displays: HashMap<MonitorId, DisplayConfig>,
     pub default_config: DisplayConfig,
     pub auto_start: bool,
-    pub filter_mode: FilterMode,
     pub ai_detection_enabled: bool,
     pub ai_peeper_detected: bool,
     stored_display_settings: HashMap<String, DisplayConfig>,
@@ -54,10 +47,10 @@ impl AppState {
             default_config: DisplayConfig {
                 enabled: true,
                 alpha: config.default_alpha,
+                filter_mode: config.default_filter_mode,
                 position_key: String::new(),
             },
             auto_start: config.auto_start,
-            filter_mode: config.filter_mode,
             ai_detection_enabled: config.ai_detection_enabled,
             ai_peeper_detected: false,
             stored_display_settings: config.display_settings,
@@ -75,8 +68,8 @@ impl AppState {
         let config = AppConfig {
             global_enabled: self.global_enabled,
             default_alpha: self.default_config.alpha,
+            default_filter_mode: self.default_config.filter_mode,
             auto_start: self.auto_start,
-            filter_mode: self.filter_mode,
             ai_detection_enabled: self.ai_detection_enabled,
             display_settings,
         };
@@ -95,9 +88,13 @@ impl AppState {
     pub fn set_peeper_detected(&mut self, detected: bool) {
         self.ai_peeper_detected = detected;
     }
-    pub fn set_filter_mode(&mut self, mode: FilterMode) {
-        self.filter_mode = mode;
+
+    pub fn set_filter_mode(&mut self, id: &MonitorId, mode: FilterMode) {
+        if let Some(config) = self.displays.get_mut(id) {
+            config.filter_mode = mode;
+        }
     }
+
     pub fn toggle_global(&mut self) -> bool {
         self.global_enabled = !self.global_enabled;
         self.global_enabled
@@ -117,11 +114,9 @@ impl AppState {
         self.auto_start
     }
 
-    pub fn set_global_alpha(&mut self, alpha: f32) {
-        let alpha = alpha.clamp(0.0, 1.0);
-        self.default_config.alpha = alpha;
-        for config in self.displays.values_mut() {
-            config.alpha = alpha;
+    pub fn set_display_alpha(&mut self, id: &MonitorId, alpha: f32) {
+        if let Some(config) = self.displays.get_mut(id) {
+            config.alpha = alpha.clamp(0.0, 1.0);
         }
     }
 
@@ -130,6 +125,10 @@ impl AppState {
             return false;
         }
         self.displays.get(id).map(|c| c.enabled).unwrap_or(false)
+    }
+
+    pub fn filter_mode(&self, id: &MonitorId) -> FilterMode {
+        self.displays.get(id).map(|c| c.filter_mode).unwrap_or(FilterMode::BlackLayer)
     }
 
     pub fn add_display(&mut self, id: MonitorId, config: Option<DisplayConfig>) {

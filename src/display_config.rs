@@ -4,6 +4,14 @@ use tao::dpi::{PhysicalPosition, PhysicalSize};
 use crate::platform;
 use serde::{Serialize, Deserialize};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FilterMode {
+    BlackLayer,
+    Louver,
+    HighSpeedMotion, // Phase 5: 高速動体マスキング
+    AsymmetricCurve, // Phase 5: 非対称曲線パターン
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 pub struct MonitorId(pub u64);
 
@@ -21,6 +29,7 @@ impl MonitorId {
 pub struct DisplayConfig {
     pub enabled: bool,
     pub alpha: f32,
+    pub filter_mode: FilterMode,
     pub position_key: String,
 }
 
@@ -43,6 +52,7 @@ impl Default for DisplayConfig {
         Self {
             enabled: true,
             alpha: 0.30,
+            filter_mode: FilterMode::BlackLayer,
             position_key: String::new(),
         }
     }

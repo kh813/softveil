@@ -1,23 +1,79 @@
-use crate::display_config::MonitorId;
-use crate::app::{AppState, FilterMode};
+use crate::display_config::{MonitorId, FilterMode};
+use crate::app::AppState;
 use crate::platform;
 use tao::event_loop::EventLoopWindowTarget;
 use tao::monitor::MonitorHandle;
 use tao::window::{Window, WindowBuilder};
-use softbuffer::{Context, Surface};
-use std::num::NonZeroU32;
-use tiny_skia::{Pixmap, Paint, Rect, Color};
+use std::sync::Arc;
+
+pub struct GpuContext {
+    pub instance: wgpu::Instance,
+    pub adapter: wgpu::Adapter,
+    pub device: wgpu::Device,
+    pub queue: wgpu::Queue,
+}
+
+impl GpuContext {
+    pub async fn new() -> Option<Self> {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::all(),
+            ..Default::default()
+        });
+
+        let adapter = instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::LowPower,
+            compatible_surface: None,
+            force_fallback_adapter: false,
+        }).await?;
+
+        let (device, queue) = adapter.request_device(
+            &wgpu::DeviceDescriptor {
+                label: None,
+                required_features: wgpu::Features::empty(),
+                required_limits: wgpu::Limits::default(),
+                memory_hints: Default::default(),
+            },
+            None,
+        ).await.ok()?;
+
+        Some(Self {
+            instance,
+            adapter,
+            device,
+            queue,
+        })
+    }
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct Uniforms {
+    time: f32,
+    mode: u32, // 0: Black, 1: Louver, 2: HighSpeed, 3: Asymmetric
+    alpha: f32,
+    width: f32,
+    height: f32,
+    is_oled: u32,
+    _padding: [u32; 2], // Padding to 16-byte alignment
+}
 
 pub struct OverlayWindow {
     pub monitor_id: MonitorId,
     pub monitor_name: String,
-    pub window: Window,
+    pub window: Arc<Window>,
+    pub surface: wgpu::Surface<'static>,
+    pub config: wgpu::SurfaceConfiguration,
+    pub pipeline: wgpu::RenderPipeline,
+    pub uniform_buffer: wgpu::Buffer,
+    pub bind_group: wgpu::BindGroup,
+    pub start_time: std::time::Instant,
+    pub is_oled: bool,
 }
 
 #[derive(Debug)]
 pub enum OverlayError {
     WindowCreationError(#[allow(dead_code)] tao::error::OsError),
-    SurfaceError(#[allow(dead_code)] softbuffer::SoftBufferError),
+    GpuError(#[allow(dead_code)] String),
 }
 
 impl OverlayWindow {
@@ -25,9 +81,10 @@ impl OverlayWindow {
         event_loop: &EventLoopWindowTarget<T>,
         monitor: &MonitorHandle,
         alpha: u8,
+        gpu: &Arc<GpuContext>,
     ) -> Result<Self, OverlayError> {
         let monitor_id = MonitorId::from_monitor(monitor);
-        let monitor_name = monitor.name().unwrap_or_else(|| format!("Display {}", monitor_id.0));
+        let monitor_name = platform::get_monitor_name(monitor);
 
         let builder = WindowBuilder::new()
             .with_decorations(false)
@@ -42,79 +99,205 @@ impl OverlayWindow {
             builder.with_skip_taskbar(true)
         };
 
-        let window = builder
+        let window = Arc::new(builder
             .build(event_loop)
-            .map_err(OverlayError::WindowCreationError)?;
+            .map_err(OverlayError::WindowCreationError)?);
 
         platform::apply_overlay_settings(&window, alpha);
+
+        let size = window.inner_size();
+        let surface = gpu.instance.create_surface(window.clone()).map_err(|e| OverlayError::GpuError(e.to_string()))?;
+
+        let surface_caps = surface.get_capabilities(&gpu.adapter);
+        let surface_format = surface_caps.formats.iter()
+            .copied()
+            .find(|f| f.is_srgb())
+            .unwrap_or(surface_caps.formats[0]);
+
+        let config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format: surface_format,
+            width: size.width,
+            height: size.height,
+            present_mode: wgpu::PresentMode::Fifo,
+            alpha_mode: surface_caps.alpha_modes[0],
+            view_formats: vec![],
+            desired_maximum_frame_latency: 2,
+        };
+        surface.configure(&gpu.device, &config);
+
+        let shader = gpu.device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
+        });
+
+        let uniform_buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Uniform Buffer"),
+            size: std::mem::size_of::<Uniforms>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let bind_group_layout = gpu.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Bind Group Layout"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
+
+        let bind_group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Bind Group"),
+            layout: &bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: uniform_buffer.as_entire_binding(),
+            }],
+        });
+
+        let pipeline_layout = gpu.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Render Pipeline Layout"),
+            bind_group_layouts: &[&bind_group_layout],
+            push_constant_ranges: &[],
+        });
+
+        let pipeline = gpu.device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Render Pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: "vs_main",
+                buffers: &[],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: "fs_main",
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: config.format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: Some(wgpu::Face::Back),
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            multiview: None,
+            cache: None,
+        });
 
         Ok(Self {
             monitor_id,
             monitor_name,
             window,
+            surface,
+            config,
+            pipeline,
+            uniform_buffer,
+            bind_group,
+            start_time: std::time::Instant::now(),
+            is_oled: platform::is_oled(monitor),
         })
     }
 
-    pub fn draw(&mut self, state: &AppState, _alpha: u8) -> Result<(), OverlayError> {
+    pub fn draw(&mut self, gpu: &GpuContext, state: &AppState, alpha: u8) -> Result<(), OverlayError> {
         let size = self.window.inner_size();
-        let width_u32 = size.width.max(1);
-        let height_u32 = size.height.max(1);
-        let width = NonZeroU32::new(width_u32).unwrap();
-        let height = NonZeroU32::new(height_u32).unwrap();
+        let uniforms = Uniforms {
+            time: self.start_time.elapsed().as_secs_f32(),
+            mode: match state.filter_mode(&self.monitor_id) {
+                FilterMode::BlackLayer => 0,
+                FilterMode::Louver => 1,
+                FilterMode::HighSpeedMotion => 2,
+                FilterMode::AsymmetricCurve => 3,
+            },
+            alpha: alpha as f32 / 255.0,
+            width: size.width as f32,
+            height: size.height as f32,
+            is_oled: if self.is_oled { 1 } else { 0 },
+            _padding: [0; 2],
+        };
+        gpu.queue.write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[uniforms]));
 
-        let context = Context::new(&self.window).map_err(OverlayError::SurfaceError)?;
-        let mut surface = Surface::new(&context, &self.window).map_err(OverlayError::SurfaceError)?;
-        
-        surface
-            .resize(width, height)
-            .map_err(OverlayError::SurfaceError)?;
+        let output = self.surface.get_current_texture().map_err(|e| OverlayError::GpuError(e.to_string()))?;
+        let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let mut encoder = gpu.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Render Encoder"),
+        });
 
-        let mut buffer = surface.buffer_mut().map_err(OverlayError::SurfaceError)?;
-        
-        match state.filter_mode {
-            FilterMode::BlackLayer => {
-                // Fill with black. Alpha is handled by NSWindow::setAlphaValue on macOS
-                // or SetLayeredWindowAttributes on Windows.
-                buffer.fill(0x00000000);
-            }
-            FilterMode::Louver => {
-                let mut pixmap = Pixmap::new(width_u32, height_u32).unwrap();
-                pixmap.fill(Color::TRANSPARENT);
+        {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: 0.0,
+                            g: 0.0,
+                            b: 0.0,
+                            a: 0.0,
+                        }),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+            });
 
-                let mut paint = Paint::default();
-                paint.set_color(Color::from_rgba8(0, 0, 0, 255));
-                paint.anti_alias = false;
-
-                // Draw 1px vertical stripes
-                for x in (0..width_u32).step_by(2) {
-                    if let Some(rect) = Rect::from_xywh(x as f32, 0.0, 1.0, height_u32 as f32) {
-                        pixmap.fill_rect(rect, &paint, tiny_skia::Transform::identity(), None);
-                    }
-                }
-
-                // Copy pixmap to buffer
-                for (dest, src) in buffer.iter_mut().zip(pixmap.data().chunks_exact(4)) {
-                    // tiny-skia is RGBA, softbuffer expects ARGB or similar depending on platform.
-                    // But here we just want to fill the buffer with the pattern.
-                    // For louver, we use 0xFF alpha for black stripes.
-                    *dest = u32::from_be_bytes([src[3], src[0], src[1], src[2]]);
-                }
-            }
+            render_pass.set_pipeline(&self.pipeline);
+            render_pass.set_bind_group(0, &self.bind_group, &[]);
+            render_pass.draw(0..3, 0..1);
         }
 
-        buffer.present().map_err(OverlayError::SurfaceError)?;
+        gpu.queue.submit(std::iter::once(encoder.finish()));
+        output.present();
+
+        // Request next frame if we are in a motion mode
+        let mode = state.filter_mode(&self.monitor_id);
+        if mode == FilterMode::HighSpeedMotion || mode == FilterMode::AsymmetricCurve {
+            self.window.request_redraw();
+        }
+
         Ok(())
+    }
+
+    pub fn resize(&mut self, gpu: &GpuContext, width: u32, height: u32) {
+        if width > 0 && height > 0 {
+            self.config.width = width;
+            self.config.height = height;
+            self.surface.configure(&gpu.device, &self.config);
+        }
     }
 
     pub fn set_visible(&self, visible: bool) {
         self.window.set_visible(visible);
     }
 
-    pub fn update_alpha(&mut self, state: &AppState, alpha: u8) -> Result<(), OverlayError> {
+    pub fn update_alpha(&mut self, gpu: &GpuContext, state: &AppState, alpha: u8) -> Result<(), OverlayError> {
         #[cfg(target_os = "windows")]
         platform::apply_overlay_settings(&self.window, alpha);
         
-        self.draw(state, alpha)
+        self.draw(gpu, state, alpha)
     }
 }
 
@@ -122,12 +305,13 @@ pub fn create_all<T>(
     event_loop: &EventLoopWindowTarget<T>,
     monitors: Vec<MonitorHandle>,
     state: &AppState,
+    gpu: &Arc<GpuContext>,
 ) -> Vec<OverlayWindow> {
     let mut overlays = Vec::new();
     for monitor in monitors {
-        match OverlayWindow::new(event_loop, &monitor, 77) {
+        match OverlayWindow::new(event_loop, &monitor, 77, gpu) {
             Ok(mut overlay) => {
-                let _ = overlay.draw(state, 77);
+                let _ = overlay.draw(gpu, state, 77);
                 overlays.push(overlay);
             }
             Err(e) => eprintln!("Failed to create overlay window: {:?}", e),
@@ -143,11 +327,12 @@ pub fn add_display<T>(
     state: &AppState,
     visible: bool,
     alpha: u8,
+    gpu: &Arc<GpuContext>,
 ) -> Result<MonitorId, OverlayError> {
-    let mut overlay = OverlayWindow::new(event_loop, monitor, alpha)?;
+    let mut overlay = OverlayWindow::new(event_loop, monitor, alpha, gpu)?;
     overlay.set_visible(visible);
     if visible {
-        let _ = overlay.draw(state, alpha);
+        let _ = overlay.draw(gpu, state, alpha);
     }
     let id = overlay.monitor_id;
     overlays.push(overlay);
@@ -158,13 +343,13 @@ pub fn remove_display(overlays: &mut Vec<OverlayWindow>, id: &MonitorId) {
     overlays.retain(|o| o.monitor_id != *id);
 }
 
-pub fn sync_all(overlays: &mut Vec<OverlayWindow>, state: &AppState) {
+pub fn sync_all(overlays: &mut Vec<OverlayWindow>, state: &AppState, gpu: &GpuContext) {
     for overlay in overlays {
         let visible = state.is_visible(&overlay.monitor_id);
         overlay.set_visible(visible);
         if visible {
             let alpha = state.effective_alpha_u8(&overlay.monitor_id);
-            let _ = overlay.update_alpha(state, alpha);
+            let _ = overlay.update_alpha(gpu, state, alpha);
         }
     }
 }

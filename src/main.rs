@@ -9,8 +9,8 @@ mod tray;
 mod hotkey;
 mod ai_detection;
 
-use app::{AppState, FilterMode};
-use display_config::{MonitorId, DisplayConfig, DisconnectedCache};
+use app::AppState;
+use display_config::{MonitorId, DisplayConfig, DisconnectedCache, FilterMode};
 use tray::{TrayHandle, MENU_ID_GLOBAL_TOGGLE, MENU_ID_DISPLAY_TOGGLE_PREFIX, MENU_ID_ALPHA_PREFIX, MENU_ID_MODE_PREFIX, MENU_ID_AUTO_START, MENU_ID_AI_DETECTION, MENU_ID_QUIT};
 use ai_detection::{AIDetectionCommand, start_detection_thread};
 use auto_launch::AutoLaunchBuilder;
@@ -47,6 +47,8 @@ fn main() {
     
     let mut state = AppState::new();
     let mut cache = DisconnectedCache::new();
+
+    let gpu = std::sync::Arc::new(pollster::block_on(overlay::GpuContext::new()).expect("Failed to initialize GPU"));
     
     // Initial display registration
     for monitor in &monitors {
@@ -56,11 +58,11 @@ fn main() {
         state.add_display_with_pos(id, pos_key);
     }
     
-    let mut overlays = overlay::create_all(&event_loop, monitors, &state);
+    let mut overlays = overlay::create_all(&event_loop, monitors, &state, &gpu);
     println!("Created {} overlay windows.", overlays.len());
     
     // Sync initial overlays with loaded state
-    overlay::sync_all(&mut overlays, &state);
+    overlay::sync_all(&mut overlays, &state, &gpu);
     
     let tray_handle = match TrayHandle::new(&state, &overlays) {
         Ok(t) => {
@@ -125,13 +127,28 @@ fn main() {
     event_loop.run(move |event, event_loop_target, control_flow| {
         *control_flow = ControlFlow::Wait;
 
-        // Handle Hotkey events via UserEvent
         match event {
+            Event::RedrawRequested(window_id) => {
+                if let Some(overlay) = overlays.iter_mut().find(|o| o.window.id() == window_id) {
+                    let alpha = state.effective_alpha_u8(&overlay.monitor_id);
+                    let _ = overlay.draw(&gpu, &state, alpha);
+                }
+            }
+            Event::WindowEvent {
+                event: tao::event::WindowEvent::Resized(size),
+                window_id,
+                ..
+            } => {
+                if let Some(overlay) = overlays.iter_mut().find(|o| o.window.id() == window_id) {
+                    overlay.resize(&gpu, size.width, size.height);
+                }
+            }
+            // Handle Hotkey events via UserEvent
             Event::UserEvent(UserEvent::Hotkey(HotkeyEvent::ToggleGlobal)) => {
                 println!("Event: Toggle Global (Hotkey)");
                 state.toggle_global();
                 state.save();
-                overlay::sync_all(&mut overlays, &state);
+                overlay::sync_all(&mut overlays, &state, &gpu);
                 if let Some(ref t) = tray_handle {
                     t.rebuild_menu(&state, &overlays);
                 }
@@ -140,7 +157,7 @@ fn main() {
                 if state.ai_peeper_detected != detected {
                     println!("Event: AI Peeper Detected = {}", detected);
                     state.set_peeper_detected(detected);
-                    overlay::sync_all(&mut overlays, &state);
+                    overlay::sync_all(&mut overlays, &state, &gpu);
                 }
             }
             _ => (),
@@ -153,7 +170,7 @@ fn main() {
                 println!("Menu: Toggle Global");
                 state.toggle_global();
                 state.save();
-                overlay::sync_all(&mut overlays, &state);
+                overlay::sync_all(&mut overlays, &state, &gpu);
                 if let Some(ref t) = tray_handle {
                     t.rebuild_menu(&state, &overlays);
                 }
@@ -168,37 +185,59 @@ fn main() {
                         println!("Menu: Toggle Display {:?}", monitor_id);
                         state.toggle_display(&monitor_id);
                         state.save();
-                        overlay::sync_all(&mut overlays, &state);
+                        overlay::sync_all(&mut overlays, &state, &gpu);
                         if let Some(ref t) = tray_handle {
                             t.rebuild_menu(&state, &overlays);
                         }
                     }
                 }
             } else if id.starts_with(MENU_ID_ALPHA_PREFIX) {
-                let alpha_str = &id[MENU_ID_ALPHA_PREFIX.len()..];
-                if let Ok(pct) = alpha_str.parse::<u32>() {
-                    println!("Menu: Set Alpha {}%", pct);
-                    state.set_global_alpha(pct as f32 / 100.0);
-                    state.save();
-                    overlay::sync_all(&mut overlays, &state);
-                    if let Some(ref t) = tray_handle {
-                        t.rebuild_menu(&state, &overlays);
+                let rest = &id[MENU_ID_ALPHA_PREFIX.len()..];
+                let parts: Vec<&str> = rest.split(':').collect();
+                if parts.len() == 2 {
+                    let id_str = parts[0];
+                    let alpha_str = parts[1];
+                    if id_str.starts_with("0x") {
+                        if let Ok(val) = u64::from_str_radix(&id_str[2..], 16) {
+                            let monitor_id = MonitorId(val);
+                            if let Ok(pct) = alpha_str.parse::<u32>() {
+                                println!("Menu: Set Display {:?} Alpha {}%", monitor_id, pct);
+                                state.set_display_alpha(&monitor_id, pct as f32 / 100.0);
+                                state.save();
+                                overlay::sync_all(&mut overlays, &state, &gpu);
+                                if let Some(ref t) = tray_handle {
+                                    t.rebuild_menu(&state, &overlays);
+                                }
+                            }
+                        }
                     }
                 }
             } else if id.starts_with(MENU_ID_MODE_PREFIX) {
-                let mode_str = &id[MENU_ID_MODE_PREFIX.len()..];
-                let mode = match mode_str {
-                    "BlackLayer" => Some(FilterMode::BlackLayer),
-                    "Louver" => Some(FilterMode::Louver),
-                    _ => None,
-                };
-                if let Some(m) = mode {
-                    println!("Menu: Set Filter Mode {:?}", m);
-                    state.set_filter_mode(m);
-                    state.save();
-                    overlay::sync_all(&mut overlays, &state);
-                    if let Some(ref t) = tray_handle {
-                        t.rebuild_menu(&state, &overlays);
+                let rest = &id[MENU_ID_MODE_PREFIX.len()..];
+                let parts: Vec<&str> = rest.split(':').collect();
+                if parts.len() == 2 {
+                    let id_str = parts[0];
+                    let mode_str = parts[1];
+                    if id_str.starts_with("0x") {
+                        if let Ok(val) = u64::from_str_radix(&id_str[2..], 16) {
+                            let monitor_id = MonitorId(val);
+                            let mode = match mode_str {
+                                "BlackLayer" => Some(FilterMode::BlackLayer),
+                                "Louver" => Some(FilterMode::Louver),
+                                "HighSpeedMotion" => Some(FilterMode::HighSpeedMotion),
+                                "AsymmetricCurve" => Some(FilterMode::AsymmetricCurve),
+                                _ => None,
+                            };
+                            if let Some(m) = mode {
+                                println!("Menu: Set Display {:?} Filter Mode {:?}", monitor_id, m);
+                                state.set_filter_mode(&monitor_id, m);
+                                state.save();
+                                overlay::sync_all(&mut overlays, &state, &gpu);
+                                if let Some(ref t) = tray_handle {
+                                    t.rebuild_menu(&state, &overlays);
+                                }
+                            }
+                        }
                     }
                 }
             } else if id == MENU_ID_AI_DETECTION {
@@ -274,7 +313,8 @@ fn main() {
                             &monitor,
                             &state,
                             state.is_visible(&id),
-                            config.alpha_u8()
+                            config.alpha_u8(),
+                            &gpu
                         );
                     }
                 }

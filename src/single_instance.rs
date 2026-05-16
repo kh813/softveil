@@ -1,4 +1,6 @@
+#[cfg(target_os = "macos")]
 use std::fs::File;
+#[cfg(target_os = "macos")]
 use std::path::PathBuf;
 
 #[cfg(target_os = "macos")]
@@ -13,8 +15,6 @@ use windows_sys::Win32::System::Threading::*;
 pub enum SingleInstanceError {
     AlreadyRunning,
     Io(#[allow(dead_code)] std::io::Error),
-    #[cfg(target_os = "windows")]
-    WindowsError(u32),
 }
 
 pub struct SingleInstanceGuard {

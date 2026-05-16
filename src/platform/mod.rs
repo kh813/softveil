@@ -40,3 +40,17 @@ pub fn register_hotplug_handler(tx: mpsc::Sender<DisplayChangeEvent>) -> Hotplug
     #[cfg(target_os = "windows")]
     return HotplugGuard { _inner: windows::register_display_change_hook(tx) };
 }
+
+pub fn is_oled(monitor: &MonitorHandle) -> bool {
+    #[cfg(target_os = "macos")]
+    return macos::is_oled(monitor);
+    #[cfg(target_os = "windows")]
+    return windows::is_oled(monitor);
+}
+
+pub fn get_monitor_name(monitor: &MonitorHandle) -> String {
+    #[cfg(target_os = "macos")]
+    return macos::get_monitor_name(monitor);
+    #[cfg(target_os = "windows")]
+    return monitor.name().unwrap_or_else(|| format!("Monitor #{}", get_monitor_id(monitor).0));
+}
