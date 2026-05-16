@@ -190,3 +190,19 @@ pub fn detect_panel_type(monitor: &MonitorHandle) -> PanelType {
         PanelType::Unknown
     }
 }
+
+pub fn has_screen_capture_access() -> bool {
+    #[link(name = "CoreGraphics", kind = "framework")]
+    extern "C" {
+        fn CGPreflightScreenCaptureAccess() -> bool;
+    }
+    unsafe { CGPreflightScreenCaptureAccess() }
+}
+
+pub fn show_permission_alert(title: &str, message: &str) {
+    let script = format!(
+        "display alert \"{}\" message \"{}\" buttons {{\"OK\"}} default button \"OK\"",
+        title, message
+    );
+    let _ = Command::new("osascript").args(&["-e", &script]).status();
+}

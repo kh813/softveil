@@ -42,46 +42,23 @@ fn main() {
     let event_loop = tao::event_loop::EventLoopBuilder::<UserEvent>::with_user_event().build();
     let proxy = event_loop.create_proxy();
 
-    // Phase 5: Initialize Screen Capture access (experimental)
-    #[cfg(target_os = "macos")]
-    {
-        #[link(name = "CoreGraphics", kind = "framework")]
-        extern "C" {
-            fn CGPreflightScreenCaptureAccess() -> bool;
-        }
-
-        use crabgrab::prelude::*;
-        if unsafe { !CGPreflightScreenCaptureAccess() } {
-            println!("Requesting screen capture access...");
-            tokio::runtime::Builder::new_multi_thread()
-                .enable_all()
-                .build()
-                .unwrap()
-                .block_on(async {
-                    let _ = CaptureStream::request_access(false).await;
-                });
-        } else {
-            println!("Screen capture access already granted.");
-        }
-    }
-    
-    #[cfg(target_os = "windows")]
-    {
-        use crabgrab::prelude::*;
-        tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build()
-            .unwrap()
-            .block_on(async {
-                let _ = CaptureStream::request_access(false).await;
-            });
-    }
-    
     let monitors: Vec<_> = event_loop.available_monitors().collect();
     println!("Found {} monitors.", monitors.len());
     
     let mut state = AppState::new();
     let mut cache = DisconnectedCache::new();
+
+    // Phase 5: Check Screen Capture access (without automatic prompt)
+    #[cfg(target_os = "macos")]
+    {
+        if !platform::has_screen_capture_access() {
+            println!("Screen capture access is not granted. Advanced Phase 5 features will be limited.");
+            // We could show the dialog here, but to be even less intrusive, 
+            // maybe we only show it when a feature is selected.
+            // For now, let's keep it in console to satisfy "not every time" 
+            // and prepare for feature-gated prompts.
+        }
+    }
 
     let gpu = std::sync::Arc::new(pollster::block_on(overlay::GpuContext::new()).expect("Failed to initialize GPU"));
     
@@ -167,13 +144,41 @@ fn main() {
     println!("Softveil Phase 1 running. Waiting for events...");
 
     event_loop.run(move |event, event_loop_target, control_flow| {
-        *control_flow = ControlFlow::Wait;
+        // Determine if any active overlay needs continuous animation
+        let needs_animation = overlays.iter().any(|o| {
+            let mode = state.filter_mode(&o.monitor_id);
+            matches!(mode,
+                FilterMode::VerticalLouver |
+                FilterMode::FastVibration  |
+                FilterMode::AsymmetricCurve |
+                FilterMode::AIOcrInterference
+            ) && state.is_visible(&o.monitor_id)
+        });
+
+        *control_flow = if needs_animation {
+            ControlFlow::Poll
+        } else {
+            ControlFlow::Wait
+        };
 
         match event {
+            Event::MainEventsCleared => {
+                if needs_animation {
+                    for overlay in overlays.iter_mut() {
+                        if state.is_visible(&overlay.monitor_id) {
+                            let alpha = state.effective_alpha_u8(&overlay.monitor_id);
+                            let _ = overlay.draw(&gpu, &state, alpha);
+                        }
+                    }
+                }
+            }
             Event::RedrawRequested(window_id) => {
-                if let Some(overlay) = overlays.iter_mut().find(|o| o.window.id() == window_id) {
-                    let alpha = state.effective_alpha_u8(&overlay.monitor_id);
-                    let _ = overlay.draw(&gpu, &state, alpha);
+                // Pollモード中はMainEventsClearedで描画するため不要
+                if !needs_animation {
+                    if let Some(overlay) = overlays.iter_mut().find(|o| o.window.id() == window_id) {
+                        let alpha = state.effective_alpha_u8(&overlay.monitor_id);
+                        let _ = overlay.draw(&gpu, &state, alpha);
+                    }
                 }
             }
             Event::WindowEvent {
@@ -268,10 +273,25 @@ fn main() {
                                 "VerticalLouver" => Some(FilterMode::VerticalLouver),
                                 "FastVibration" => Some(FilterMode::FastVibration),
                                 "AsymmetricCurve" => Some(FilterMode::AsymmetricCurve),
+                                "AIOcrInterference" => Some(FilterMode::AIOcrInterference),
                                 _ => None,
                             };
                             if let Some(m) = mode {
                                 println!("Menu: Set Display {:?} Filter Mode {:?}", monitor_id, m);
+
+                                #[cfg(target_os = "macos")]
+                                {
+                                    // Check if we need screen capture permission for the selected mode.
+                                    // Even though AI OCR Interference is currently procedural, it's marked as a Phase 5 feature 
+                                    // that will eventually include Semantic Privacy analysis.
+                                    if m == FilterMode::AIOcrInterference && !platform::has_screen_capture_access() {
+                                        platform::macos::show_permission_alert(
+                                            "「画面収録」の許可が必要です",
+                                            "AI OCR 妨害機能の一部（高度な解析）を利用するには、システム設定の「プライバシーとセキュリティ > 画面収録」で Softveil を許可してください。"
+                                        );
+                                    }
+                                }
+
                                 state.set_filter_mode(&monitor_id, m);
                                 state.save();
                                 overlay::sync_all(&mut overlays, &state, &gpu);

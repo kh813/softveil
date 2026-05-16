@@ -54,3 +54,10 @@ pub fn get_monitor_name(monitor: &MonitorHandle) -> String {
     #[cfg(target_os = "windows")]
     return windows::get_monitor_name(monitor);
 }
+
+pub fn has_screen_capture_access() -> bool {
+    #[cfg(target_os = "macos")]
+    return macos::has_screen_capture_access();
+    #[cfg(target_os = "windows")]
+    return true; // Windows handled differently or doesn't have a preflight check like this
+}

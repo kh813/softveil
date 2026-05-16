@@ -10,6 +10,7 @@ pub enum FilterMode {
     VerticalLouver,
     FastVibration,
     AsymmetricCurve,
+    AIOcrInterference,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

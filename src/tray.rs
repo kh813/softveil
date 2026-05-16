@@ -113,6 +113,7 @@ fn build_menu(state: &AppState, overlays: &[OverlayWindow]) -> Menu {
             (FilterMode::VerticalLouver, "縦縞ルーバー"),
             (FilterMode::FastVibration, "高速動体マスキング"),
             (FilterMode::AsymmetricCurve, "非対称曲線パターン"),
+            (FilterMode::AIOcrInterference, "AI OCR 妨害テクスチャ"),
         ];
         for (mode, label) in modes {
             let item = CheckMenuItem::with_id(

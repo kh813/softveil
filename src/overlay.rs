@@ -48,13 +48,15 @@ impl GpuContext {
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct Uniforms {
     time: f32,
-    mode: u32, // 0: Black, 1: Louver, 2: HighSpeed, 3: Asymmetric
+    mode: u32, // 0: Black, 1: Louver, 2: HighSpeed, 3: Asymmetric, 4: AIOcr
     alpha: f32,
     width: f32,
     height: f32,
     panel_type: u32, // 0: Unknown, 1: Oled, 2: LcdIps, 3: LcdTn
     refresh_rate: u32,
     intensity: f32, // Added filter intensity (0.5 - 2.0)
+    bidirectional: u32, // 0: Vertical only, 1: Grid
+    _padding: [u32; 2], // Pad to 48 bytes (16-byte aligned)
 }
 
 pub struct OverlayWindow {
@@ -231,6 +233,7 @@ impl OverlayWindow {
                 FilterMode::VerticalLouver => 1,
                 FilterMode::FastVibration => 2,
                 FilterMode::AsymmetricCurve => 3,
+                FilterMode::AIOcrInterference => 4,
             },
             alpha: alpha as f32 / 255.0,
             width: size.width as f32,
@@ -243,6 +246,13 @@ impl OverlayWindow {
             },
             refresh_rate: self.refresh_rate,
             intensity: state.filter_intensity(&self.monitor_id),
+            bidirectional: match state.panel_type(&self.monitor_id) {
+                crate::display_config::PanelType::Oled => 1,
+                crate::display_config::PanelType::LcdIps => 0,
+                crate::display_config::PanelType::LcdTn => 0,
+                crate::display_config::PanelType::Unknown => 1,
+            },
+            _padding: [0; 2],
         };
         gpu.queue.write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[uniforms]));
 
@@ -280,12 +290,6 @@ impl OverlayWindow {
 
         gpu.queue.submit(std::iter::once(encoder.finish()));
         output.present();
-
-        // Request next frame if we are in a motion mode
-        let mode = state.filter_mode(&self.monitor_id);
-        if mode == FilterMode::FastVibration || mode == FilterMode::AsymmetricCurve {
-            self.window.request_redraw();
-        }
 
         Ok(())
     }
