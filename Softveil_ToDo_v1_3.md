@@ -155,6 +155,11 @@
     - [ ] **プロフェッショナルモード**: 据置利用時の高負荷・高品質な輝度干渉パターンの適用 🚧
 - [ ] **GPU シェーダーによる輝度干渉 (Luminance Interference)** 🚧
     - [ ] 液晶のガンマ偏移を利用した、斜め方向からのコントラスト動的破壊 🚧
+    - [ ] **Dynamic Gamma Shifting**: コンテンツ解析に基づく逆位相ガンマ補正の実装 🚧
+- [ ] **次世代アドバンスド SPD 技術の検証 (Expansion)** 🚧
+    - [ ] **Subpixel UHD Jamming**: R/G/B サブピクセル単位の干渉パターンの実装 🚧
+    - [ ] **Chromatic Aberration Simulation**: 意図的な色ズレによる斜め方向の色偏移増幅 🚧
+    - [ ] **Semantic Clarity Reduction**: 特定領域（文字・フォーム）の重点ガード 🚧
 
 
 
