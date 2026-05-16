@@ -12,6 +12,25 @@ pub enum FilterMode {
     AsymmetricCurve, // Phase 5: 非対称曲線パターン
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PanelType {
+    Unknown,
+    Oled,
+    LcdIps,
+    LcdTn,
+}
+
+impl PanelType {
+    pub fn to_str(&self) -> &'static str {
+        match self {
+            PanelType::Unknown => "Unknown",
+            PanelType::Oled => "OLED",
+            PanelType::LcdIps => "LCD IPS",
+            PanelType::LcdTn => "LCD TN",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 pub struct MonitorId(pub u64);
 
@@ -30,6 +49,7 @@ pub struct DisplayConfig {
     pub enabled: bool,
     pub alpha: f32,
     pub filter_mode: FilterMode,
+    pub panel_type: PanelType,
     pub position_key: String,
 }
 
@@ -53,6 +73,7 @@ impl Default for DisplayConfig {
             enabled: true,
             alpha: 0.30,
             filter_mode: FilterMode::BlackLayer,
+            panel_type: PanelType::Unknown,
             position_key: String::new(),
         }
     }

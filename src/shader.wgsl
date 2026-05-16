@@ -22,7 +22,7 @@ struct Uniforms {
     alpha: f32,
     width: f32,
     height: f32,
-    is_oled: u32,
+    panel_type: u32, // 0: Unknown, 1: Oled, 2: LcdIps, 3: LcdTn
 };
 
 @group(0) @binding(0)
@@ -33,12 +33,20 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var x_pixel = in.tex_coords.x * uniforms.width;
     var y_pixel = in.tex_coords.y * uniforms.height;
 
-    // OLED Anti-Burn-in: Shift the pattern slightly over time
-    if (uniforms.is_oled == 1u) {
+    // Panel-specific hacks
+    if (uniforms.panel_type == 1u) {
+        // OLED Anti-Burn-in: Shift the pattern slightly over time
         let shift_x = sin(uniforms.time * 0.1) * 2.0;
         let shift_y = cos(uniforms.time * 0.1) * 2.0;
         x_pixel += shift_x;
         y_pixel += shift_y;
+    } else if (uniforms.panel_type == 2u) {
+        // LCD IPS: Phase inversion + slight scroll to bypass liquid crystal response
+        let phase = f32(u32(uniforms.time * 30.0) % 2u) * 3.14159;
+        x_pixel += sin(uniforms.time * 0.5 + phase) * 1.0;
+    } else if (uniforms.panel_type == 3u) {
+        // LCD TN: Vertical scroll to exploit poor vertical viewing angles
+        y_pixel += uniforms.time * 10.0;
     }
 
     if (uniforms.mode == 0u) {

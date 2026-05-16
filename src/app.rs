@@ -48,6 +48,7 @@ impl AppState {
                 enabled: true,
                 alpha: config.default_alpha,
                 filter_mode: config.default_filter_mode,
+                panel_type: crate::display_config::PanelType::Unknown,
                 position_key: String::new(),
             },
             auto_start: config.auto_start,
@@ -129,6 +130,16 @@ impl AppState {
 
     pub fn filter_mode(&self, id: &MonitorId) -> FilterMode {
         self.displays.get(id).map(|c| c.filter_mode).unwrap_or(FilterMode::BlackLayer)
+    }
+
+    pub fn panel_type(&self, id: &MonitorId) -> crate::display_config::PanelType {
+        self.displays.get(id).map(|c| c.panel_type).unwrap_or(crate::display_config::PanelType::Unknown)
+    }
+
+    pub fn set_panel_type(&mut self, id: &MonitorId, panel_type: crate::display_config::PanelType) {
+        if let Some(config) = self.displays.get_mut(id) {
+            config.panel_type = panel_type;
+        }
     }
 
     pub fn add_display(&mut self, id: MonitorId, config: Option<DisplayConfig>) {

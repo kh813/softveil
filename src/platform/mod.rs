@@ -5,7 +5,7 @@ pub mod windows;
 
 use tao::monitor::MonitorHandle;
 use tao::window::Window;
-use crate::display_config::MonitorId;
+use crate::display_config::{MonitorId, PanelType};
 use std::sync::mpsc;
 
 pub fn get_monitor_id(monitor: &MonitorHandle) -> MonitorId {
@@ -41,16 +41,16 @@ pub fn register_hotplug_handler(tx: mpsc::Sender<DisplayChangeEvent>) -> Hotplug
     return HotplugGuard { _inner: windows::register_display_change_hook(tx) };
 }
 
-pub fn is_oled(monitor: &MonitorHandle) -> bool {
+pub fn detect_panel_type(monitor: &MonitorHandle) -> PanelType {
     #[cfg(target_os = "macos")]
-    return macos::is_oled(monitor);
+    return macos::detect_panel_type(monitor);
     #[cfg(target_os = "windows")]
-    return windows::is_oled(monitor);
+    return windows::detect_panel_type(monitor);
 }
 
 pub fn get_monitor_name(monitor: &MonitorHandle) -> String {
     #[cfg(target_os = "macos")]
     return macos::get_monitor_name(monitor);
     #[cfg(target_os = "windows")]
-    return monitor.name().unwrap_or_else(|| format!("Monitor #{}", get_monitor_id(monitor).0));
+    return windows::get_monitor_name(monitor);
 }

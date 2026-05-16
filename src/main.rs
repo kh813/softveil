@@ -11,7 +11,7 @@ mod ai_detection;
 
 use app::AppState;
 use display_config::{MonitorId, DisplayConfig, DisconnectedCache, FilterMode};
-use tray::{TrayHandle, MENU_ID_GLOBAL_TOGGLE, MENU_ID_DISPLAY_TOGGLE_PREFIX, MENU_ID_ALPHA_PREFIX, MENU_ID_MODE_PREFIX, MENU_ID_AUTO_START, MENU_ID_AI_DETECTION, MENU_ID_QUIT};
+use tray::{TrayHandle, MENU_ID_GLOBAL_TOGGLE, MENU_ID_DISPLAY_TOGGLE_PREFIX, MENU_ID_ALPHA_PREFIX, MENU_ID_MODE_PREFIX, MENU_ID_PANEL_PREFIX, MENU_ID_AUTO_START, MENU_ID_AI_DETECTION, MENU_ID_QUIT};
 use ai_detection::{AIDetectionCommand, start_detection_thread};
 use auto_launch::AutoLaunchBuilder;
 use hotkey::HotkeyEvent;
@@ -41,6 +41,20 @@ fn main() {
 
     let event_loop = tao::event_loop::EventLoopBuilder::<UserEvent>::with_user_event().build();
     let proxy = event_loop.create_proxy();
+
+    // Phase 5: Initialize Screen Capture access (experimental)
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    {
+        use crabgrab::prelude::*;
+        tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(async {
+                println!("Requesting screen capture access...");
+                let _ = CaptureStream::request_access(false).await;
+            });
+    }
     
     let monitors: Vec<_> = event_loop.available_monitors().collect();
     println!("Found {} monitors.", monitors.len());
@@ -60,6 +74,13 @@ fn main() {
     
     let mut overlays = overlay::create_all(&event_loop, monitors, &state, &gpu);
     println!("Created {} overlay windows.", overlays.len());
+    
+    // Sync detected panel types back to state if they are Unknown
+    for overlay in &overlays {
+        if state.panel_type(&overlay.monitor_id) == crate::display_config::PanelType::Unknown {
+            state.set_panel_type(&overlay.monitor_id, overlay.panel_type);
+        }
+    }
     
     // Sync initial overlays with loaded state
     overlay::sync_all(&mut overlays, &state, &gpu);
@@ -240,6 +261,34 @@ fn main() {
                         }
                     }
                 }
+            } else if id.starts_with(MENU_ID_PANEL_PREFIX) {
+                let rest = &id[MENU_ID_PANEL_PREFIX.len()..];
+                let parts: Vec<&str> = rest.split(':').collect();
+                if parts.len() == 2 {
+                    let id_str = parts[0];
+                    let panel_str = parts[1];
+                    if id_str.starts_with("0x") {
+                        if let Ok(val) = u64::from_str_radix(&id_str[2..], 16) {
+                            let monitor_id = MonitorId(val);
+                            let panel_type = match panel_str {
+                                "Unknown" => Some(crate::display_config::PanelType::Unknown),
+                                "Oled" => Some(crate::display_config::PanelType::Oled),
+                                "LcdIps" => Some(crate::display_config::PanelType::LcdIps),
+                                "LcdTn" => Some(crate::display_config::PanelType::LcdTn),
+                                _ => None,
+                            };
+                            if let Some(p) = panel_type {
+                                println!("Menu: Set Display {:?} Panel Type {:?}", monitor_id, p);
+                                state.set_panel_type(&monitor_id, p);
+                                state.save();
+                                overlay::sync_all(&mut overlays, &state, &gpu);
+                                if let Some(ref t) = tray_handle {
+                                    t.rebuild_menu(&state, &overlays);
+                                }
+                            }
+                        }
+                    }
+                }
             } else if id == MENU_ID_AI_DETECTION {
                 println!("Menu: Toggle AI Detection");
                 let enabled = state.toggle_ai_detection();
@@ -316,6 +365,12 @@ fn main() {
                             config.alpha_u8(),
                             &gpu
                         );
+
+                        if let Some(overlay) = overlays.iter().find(|o| o.monitor_id == id) {
+                            if state.panel_type(&id) == crate::display_config::PanelType::Unknown {
+                                state.set_panel_type(&id, overlay.panel_type);
+                            }
+                        }
                     }
                 }
                 

@@ -8,6 +8,7 @@ pub const MENU_ID_GLOBAL_TOGGLE: &str = "global_toggle";
 pub const MENU_ID_DISPLAY_TOGGLE_PREFIX: &str = "display_toggle:";
 pub const MENU_ID_ALPHA_PREFIX: &str = "alpha:";
 pub const MENU_ID_MODE_PREFIX: &str = "mode:";
+pub const MENU_ID_PANEL_PREFIX: &str = "panel:";
 pub const MENU_ID_AUTO_START: &str = "auto_start";
 pub const MENU_ID_AI_DETECTION: &str = "ai_detection";
 pub const MENU_ID_QUIT: &str = "quit";
@@ -85,6 +86,25 @@ fn build_menu(state: &AppState, overlays: &[OverlayWindow]) -> Menu {
             None,
         );
         let _ = display_menu.append(&toggle_item);
+
+        let panel_submenu = Submenu::new(format!("パネル種別 ({})", config.panel_type.to_str()), true);
+        let panels = [
+            (crate::display_config::PanelType::Unknown, "自動判定 (Unknown)"),
+            (crate::display_config::PanelType::Oled, "OLED (有機EL)"),
+            (crate::display_config::PanelType::LcdIps, "LCD IPS (液晶)"),
+            (crate::display_config::PanelType::LcdTn, "LCD TN (液晶)"),
+        ];
+        for (panel, label) in panels {
+            let item = CheckMenuItem::with_id(
+                format!("{}{}:{:?}", MENU_ID_PANEL_PREFIX, id_str, panel),
+                label,
+                true,
+                config.panel_type == panel,
+                None,
+            );
+            let _ = panel_submenu.append(&item);
+        }
+        let _ = display_menu.append(&panel_submenu);
 
         let mode_submenu = Submenu::new("フィルター形式", true);
         let modes = [

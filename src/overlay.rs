@@ -31,7 +31,6 @@ impl GpuContext {
                 label: None,
                 required_features: wgpu::Features::empty(),
                 required_limits: wgpu::Limits::default(),
-                memory_hints: Default::default(),
             },
             None,
         ).await.ok()?;
@@ -53,7 +52,7 @@ struct Uniforms {
     alpha: f32,
     width: f32,
     height: f32,
-    is_oled: u32,
+    panel_type: u32, // 0: Unknown, 1: Oled, 2: LcdIps, 3: LcdTn
     _padding: [u32; 2], // Padding to 16-byte alignment
 }
 
@@ -67,7 +66,7 @@ pub struct OverlayWindow {
     pub uniform_buffer: wgpu::Buffer,
     pub bind_group: wgpu::BindGroup,
     pub start_time: std::time::Instant,
-    pub is_oled: bool,
+    pub panel_type: crate::display_config::PanelType,
 }
 
 #[derive(Debug)]
@@ -202,7 +201,6 @@ impl OverlayWindow {
                 alpha_to_coverage_enabled: false,
             },
             multiview: None,
-            cache: None,
         });
 
         Ok(Self {
@@ -215,7 +213,7 @@ impl OverlayWindow {
             uniform_buffer,
             bind_group,
             start_time: std::time::Instant::now(),
-            is_oled: platform::is_oled(monitor),
+            panel_type: platform::detect_panel_type(monitor),
         })
     }
 
@@ -232,7 +230,12 @@ impl OverlayWindow {
             alpha: alpha as f32 / 255.0,
             width: size.width as f32,
             height: size.height as f32,
-            is_oled: if self.is_oled { 1 } else { 0 },
+            panel_type: match state.panel_type(&self.monitor_id) {
+                crate::display_config::PanelType::Unknown => 0,
+                crate::display_config::PanelType::Oled => 1,
+                crate::display_config::PanelType::LcdIps => 2,
+                crate::display_config::PanelType::LcdTn => 3,
+            },
             _padding: [0; 2],
         };
         gpu.queue.write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[uniforms]));

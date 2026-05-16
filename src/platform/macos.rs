@@ -2,15 +2,15 @@ use tao::monitor::MonitorHandle;
 use tao::window::Window;
 use tao::platform::macos::MonitorHandleExtMacOS;
 use tao::platform::macos::WindowExtMacOS;
-use crate::display_config::MonitorId;
+use crate::display_config::{MonitorId, PanelType};
 use crate::platform::DisplayChangeEvent;
-use objc2_app_kit::{NSWindow, NSWindowCollectionBehavior, NSColor};
+use objc2_app_kit::{NSWindow, NSWindowCollectionBehavior, NSColor, NSScreen};
+use objc2::{msg_send, rc::Retained, MainThreadMarker};
 use std::sync::{Mutex, mpsc};
 use std::collections::HashMap;
 use std::process::Command;
 use serde_json::Value;
 use objc2_foundation::{NSNotificationCenter, NSString, NSObject, NSNotification};
-use objc2::{msg_send, rc::Retained};
 use block2::StackBlock;
 
 static MONITOR_NAME_CACHE: Mutex<Option<HashMap<u64, String>>> = Mutex::new(None);
@@ -132,7 +132,61 @@ impl Drop for HotplugGuard {
     }
 }
 
-pub fn is_oled(_monitor: &MonitorHandle) -> bool {
-    // Conceptual: In a real app, we might check model name or HDR capabilities
-    false
+pub fn detect_panel_type(monitor: &MonitorHandle) -> PanelType {
+    let name = get_monitor_name(monitor).to_uppercase();
+    let mut score_oled = 0;
+    let mut score_ips = 0;
+    let mut score_tn = 0;
+
+    // Keyword matching
+    if name.contains("OLED") || name.contains("AMOLED") {
+        score_oled += 10;
+    }
+    if name.contains("XDR") || name.contains("RETINA") {
+        score_ips += 5;
+    }
+    if name.contains(" TN ") || name.ends_with(" TN") {
+        score_tn += 10;
+    }
+
+    // EDR Check (macOS specific)
+    unsafe {
+        let mtm = MainThreadMarker::new_unchecked();
+        let screens = NSScreen::screens(mtm);
+        let target_id = get_monitor_id(monitor).0 as u32;
+        
+        for i in 0..screens.count() {
+            let screen = screens.objectAtIndex(i);
+            let description = screen.deviceDescription();
+            let screen_id_obj: Retained<NSObject> = msg_send![&*description, objectForKey: &*NSString::from_str("NSScreenNumber")];
+            let screen_id: u32 = msg_send![&*screen_id_obj, unsignedIntValue];
+            
+            if screen_id == target_id {
+                let edr: f64 = screen.maximumExtendedDynamicRangeColorComponentValue();
+                if edr > 2.0 {
+                    score_oled += 8; // High EDR likely means OLED or high-end Mini-LED (treat as OLED for masking)
+                } else if edr > 1.0 {
+                    score_ips += 3;
+                }
+                break;
+            }
+        }
+    }
+
+    // Refresh rate check
+    let hz = monitor.video_modes().next().map(|m| m.refresh_rate()).unwrap_or(60);
+    if hz >= 120 {
+        score_oled += 2;
+        score_ips += 2;
+    }
+
+    if score_oled >= score_ips && score_oled >= score_tn && score_oled > 0 {
+        PanelType::Oled
+    } else if score_tn >= score_ips && score_tn > 0 {
+        PanelType::LcdTn
+    } else if score_ips > 0 {
+        PanelType::LcdIps
+    } else {
+        PanelType::Unknown
+    }
 }
