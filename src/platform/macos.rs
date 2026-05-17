@@ -12,6 +12,8 @@ use std::process::Command;
 use serde_json::Value;
 use objc2_foundation::{NSNotificationCenter, NSString, NSObject, NSNotification};
 use block2::StackBlock;
+use std::thread;
+use std::time::Duration;
 
 static MONITOR_NAME_CACHE: Mutex<Option<HashMap<u64, String>>> = Mutex::new(None);
 
@@ -140,6 +142,16 @@ pub fn register_hotplug_observer(tx: mpsc::Sender<DisplayChangeEvent>) -> Hotplu
         if let Ok(mut cache) = MONITOR_NAME_CACHE.lock() {
             *cache = None;
         }
+        
+        // Prefetch monitor names in background (Fix #7)
+        thread::spawn(|| {
+            thread::sleep(Duration::from_millis(500)); // Wait for OS to settle
+            let names = fetch_monitor_names();
+            if let Ok(mut cache) = MONITOR_NAME_CACHE.lock() {
+                *cache = Some(names);
+            }
+        });
+
         let _ = tx.send(DisplayChangeEvent::Changed);
     });
     let block = block.copy();

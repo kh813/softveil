@@ -60,8 +60,8 @@ pub fn get_physical_size_mm(monitor: &MonitorHandle) -> Option<(f32, f32)> {
         );
         if hdc.is_null() { return None; }
         
-        let w_mm = GetDeviceCaps(hdc, HORZSIZE) as f32;
-        let h_mm = GetDeviceCaps(hdc, VERTSIZE) as f32;
+        let w_mm = GetDeviceCaps(hdc, HORZSIZE as i32) as f32;
+        let h_mm = GetDeviceCaps(hdc, VERTSIZE as i32) as f32;
         DeleteDC(hdc);
         
         if w_mm > 0.0 && h_mm > 0.0 {

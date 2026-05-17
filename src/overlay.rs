@@ -48,7 +48,11 @@ impl GpuContext {
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct Uniforms {
     time: f32,
-    mode: u32, // 0: Black, 1: Louver, 2: HighSpeed, 3: Asymmetric, 4: AIOcr, 5: LcdContrastJammer
+    mode: u32,
+    // 0: BlackLayer（単色）
+    // 1: VerticalLouver（縦ルーバー）
+    // 2: AIOcrInterference（AI OCR 妨害）
+    // 3: HighIntensitySPD（SPD プロテクト）
     alpha: f32,
     width: f32,
     height: f32,
@@ -248,10 +252,8 @@ impl OverlayWindow {
             mode: match state.filter_mode(&self.monitor_id) {
                 FilterMode::BlackLayer => 0,
                 FilterMode::VerticalLouver => 1,
-                FilterMode::FastVibration => 2,
-                FilterMode::AsymmetricCurve => 3,
-                FilterMode::AIOcrInterference => 4,
-                FilterMode::LcdContrastJammer => 5,
+                FilterMode::AIOcrInterference => 2,
+                FilterMode::HighIntensitySPD => 3,
             },
             alpha: alpha as f32 / 255.0,
             width: size.width as f32,

@@ -8,10 +8,8 @@ use serde::{Serialize, Deserialize};
 pub enum FilterMode {
     BlackLayer,
     VerticalLouver,
-    FastVibration,
-    AsymmetricCurve,
     AIOcrInterference,
-    LcdContrastJammer,
+    HighIntensitySPD,
 }
 
 /// ディスプレイの用途・サイズカテゴリ
@@ -137,9 +135,7 @@ impl PanelType {
 
     pub fn recommended_filter_mode(&self) -> FilterMode {
         match self {
-            PanelType::Oled => FilterMode::VerticalLouver,
-            PanelType::LcdIps => FilterMode::LcdContrastJammer,
-            PanelType::LcdTn => FilterMode::AsymmetricCurve,
+            PanelType::Oled | PanelType::LcdIps | PanelType::LcdTn => FilterMode::HighIntensitySPD,
             PanelType::Unknown => FilterMode::BlackLayer,
         }
     }

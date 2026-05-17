@@ -124,8 +124,11 @@ pub fn start_detection_thread(
                         match cam.frame() {
                             Ok(frame) => {
                                 if let Ok(img) = frame.decode_image::<RgbFormat>() {
+                                    // Ensure RGB8 normalization (Fix #3)
+                                    let img_rgb = image::DynamicImage::ImageRgb8(img).into_rgb8();
+                                    
                                     // Preprocess
-                                    let resized = image::imageops::resize(&img, 320, 240, image::imageops::FilterType::Triangle);
+                                    let resized = image::imageops::resize(&img_rgb, 320, 240, image::imageops::FilterType::Triangle);
                                     let tensor: Tensor = tract_ndarray::Array4::from_shape_fn((1, 3, 240, 320), |(_, c, y, x)| {
                                         let pixel = resized.get_pixel(x as u32, y as u32);
                                         let val = match c {
@@ -141,6 +144,18 @@ pub fn start_detection_thread(
                                     // Run inference
                                     match runnable.run(tvec!(tensor.into())) {
                                         Ok(outputs) => {
+                                            // Debug log for output shape (Fix #5)
+                                            #[cfg(debug_assertions)]
+                                            {
+                                                static mut LOGGED: bool = false;
+                                                unsafe {
+                                                    if !LOGGED {
+                                                        println!("AI Model output[0] shape: {:?}", outputs[0].shape());
+                                                        LOGGED = true;
+                                                    }
+                                                }
+                                            }
+
                                             // Output 0: scores [1, N, 2]
                                             // Output 1: boxes [1, N, 4]
                                             let scores = outputs[0].to_array_view::<f32>().unwrap();

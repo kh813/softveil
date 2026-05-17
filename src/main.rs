@@ -152,12 +152,11 @@ fn main() {
 
     event_loop.run(move |event, event_loop_target, control_flow| {
         // Determine if any active overlay needs continuous animation
-        let needs_animation = overlays.iter().any(|o| {
+            let needs_animation = overlays.iter().any(|o| {
             let mode = state.filter_mode(&o.monitor_id);
             matches!(mode,
                 FilterMode::VerticalLouver |
-                FilterMode::FastVibration  |
-                FilterMode::AsymmetricCurve |
+                FilterMode::HighIntensitySPD |
                 FilterMode::AIOcrInterference
             ) && state.is_visible(&o.monitor_id)
         });
@@ -278,10 +277,8 @@ fn main() {
                             let mode = match mode_str {
                                 "BlackLayer" => Some(FilterMode::BlackLayer),
                                 "VerticalLouver" => Some(FilterMode::VerticalLouver),
-                                "FastVibration" => Some(FilterMode::FastVibration),
-                                "AsymmetricCurve" => Some(FilterMode::AsymmetricCurve),
                                 "AIOcrInterference" => Some(FilterMode::AIOcrInterference),
-                                "LcdContrastJammer" => Some(FilterMode::LcdContrastJammer),
+                                "HighIntensitySPD" => Some(FilterMode::HighIntensitySPD),
                                 _ => None,
                             };
                             if let Some(m) = mode {

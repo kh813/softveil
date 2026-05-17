@@ -224,6 +224,6 @@ impl AppState {
         if self.ai_peeper_detected {
             return 204; // 80% alpha
         }
-        self.displays.get(id).map(|c| c.alpha_u8()).unwrap_or(77)
+        self.displays.get(id).map(|c| c.alpha_u8()).unwrap_or_else(|| self.default_config.alpha_u8())
     }
 }

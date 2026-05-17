@@ -144,12 +144,10 @@ fn build_menu(state: &AppState, overlays: &[OverlayWindow]) -> Menu {
 
         let mode_submenu = Submenu::new("フィルター形式", true);
         let modes = [
-            (FilterMode::BlackLayer,          "単色レイヤー"),
-            (FilterMode::VerticalLouver,      "縦縞ルーバー"),
-            (FilterMode::FastVibration,       "高速動体マスキング"),
-            (FilterMode::AsymmetricCurve,     "非対称曲線パターン"),
-            (FilterMode::AIOcrInterference,   "AI OCR 妨害テクスチャ"),
-            (FilterMode::LcdContrastJammer,   "LCD 視野角コントラスト妨害 ✦"),
+            (FilterMode::HighIntensitySPD,    "SPD プロテクト ✦ (推奨)"),
+            (FilterMode::VerticalLouver,      "標準ルーバー"),
+            (FilterMode::AIOcrInterference,   "AI OCR 妨害"),
+            (FilterMode::BlackLayer,          "単色（輝度を抑える）"),
         ];
         for (mode, label) in modes {
             let item = CheckMenuItem::with_id(
@@ -185,9 +183,10 @@ fn build_menu(state: &AppState, overlays: &[OverlayWindow]) -> Menu {
         let _ = display_menu.append(&intensity_submenu);
 
         let alpha_submenu = Submenu::new("フィルター濃度", true);
-        for i in 1..=9 {
+        for i in 1..=10 {
             let alpha_pct = i * 10;
-            let is_checked = (config.alpha * 10.0).round() == i as f32;
+            let target_alpha = alpha_pct as f32 / 100.0;
+            let is_checked = (config.alpha - target_alpha).abs() < 0.01;
             let item = CheckMenuItem::with_id(
                 format!("{}{}:{}", MENU_ID_ALPHA_PREFIX, id_str, alpha_pct),
                 &format!("{}%", alpha_pct),

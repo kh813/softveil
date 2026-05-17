@@ -30,7 +30,8 @@ pub struct SingleInstanceGuard {
 #[cfg(target_os = "macos")]
 pub fn acquire() -> Result<SingleInstanceGuard, SingleInstanceError> {
     let mut path = std::env::temp_dir();
-    path.push("softveil.lock");
+    let username = std::env::var("USER").unwrap_or_else(|_| "unknown".to_string());
+    path.push(format!("softveil-{}.lock", username));
     
     let file = File::create(&path).map_err(SingleInstanceError::Io)?;
     let fd = file.as_raw_fd();
