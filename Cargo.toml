@@ -1,6 +1,6 @@
 [package]
 name = "softveil"
-version = "0.1.14"
+version = "0.1.15"
 edition = "2021"
 description = "Software privacy filter for macOS and Windows"
 

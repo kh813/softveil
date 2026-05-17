@@ -47,26 +47,11 @@ impl GpuContext {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct Uniforms {
-    time: f32,
-    mode: u32,
-    alpha: f32,
-    width: f32,
-    height: f32,
-    panel_type: u32,
-    refresh_rate: u32,
-    intensity: f32,
-    bidirectional: u32,
-    period_px: f32,
-    scroll_speed_px: f32,
-    cover_ratio: f32,
-    phase_flip_hz: f32,
-    grid_period_px: f32,
-    luminance_compress: f32,
-    hatch_angle: f32,
-    _pad0: u32,
-    _pad1: u32,
-    _pad2: u32,
-    _pad3: u32,
+    v0: [f32; 4], // time, mode, alpha, width
+    v1: [f32; 4], // height, panel_type, refresh_rate, intensity
+    v2: [f32; 4], // bidirectional, period_px, scroll_speed_px, cover_ratio
+    v3: [f32; 4], // phase_flip_hz, grid_period_px, luminance_compress, hatch_angle
+    v4: [f32; 4], // padding
 }
 
 pub struct OverlayWindow {
@@ -245,41 +230,46 @@ impl OverlayWindow {
         let luminance_compress = (0.20 / profile.intensity_scale()).clamp(0.10, 0.35);
 
         let uniforms = Uniforms {
-            time: self.start_time.elapsed().as_secs_f32(),
-            mode: match state.filter_mode(&self.monitor_id) {
-                FilterMode::BlackLayer => 0,
-                FilterMode::VerticalLouver => 1,
-                FilterMode::AIOcrInterference => 2,
-                FilterMode::HighIntensitySPD => 3,
-            },
-            alpha: alpha as f32 / 255.0,
-            width: size.width as f32,
-            height: size.height as f32,
-            panel_type: match state.panel_type(&self.monitor_id) {
-                crate::display_config::PanelType::Unknown => 0,
-                crate::display_config::PanelType::Oled => 1,
-                crate::display_config::PanelType::LcdIps => 2,
-                crate::display_config::PanelType::LcdTn => 3,
-            },
-            refresh_rate: self.refresh_rate,
-            intensity: state.filter_intensity(&self.monitor_id),
-            bidirectional: match state.panel_type(&self.monitor_id) {
-                crate::display_config::PanelType::Oled => 1,
-                crate::display_config::PanelType::LcdIps => 0,
-                crate::display_config::PanelType::LcdTn => 0,
-                crate::display_config::PanelType::Unknown => 1,
-            },
-            period_px: profile.period_px(ppi),
-            scroll_speed_px: profile.scroll_speed_px(ppi),
-            cover_ratio: profile.cover_ratio,
-            phase_flip_hz: profile.phase_flip_hz,
-            grid_period_px: profile.period_px(ppi),
-            luminance_compress,
-            hatch_angle: std::f32::consts::FRAC_PI_4,
-            _pad0: 0,
-            _pad1: 0,
-            _pad2: 0,
-            _pad3: 0,
+            v0: [
+                self.start_time.elapsed().as_secs_f32(),
+                match state.filter_mode(&self.monitor_id) {
+                    FilterMode::BlackLayer => 0.0,
+                    FilterMode::VerticalLouver => 1.0,
+                    FilterMode::AIOcrInterference => 2.0,
+                    FilterMode::HighIntensitySPD => 3.0,
+                },
+                alpha as f32 / 255.0,
+                size.width as f32,
+            ],
+            v1: [
+                size.height as f32,
+                match state.panel_type(&self.monitor_id) {
+                    crate::display_config::PanelType::Unknown => 0.0,
+                    crate::display_config::PanelType::Oled => 1.0,
+                    crate::display_config::PanelType::LcdIps => 2.0,
+                    crate::display_config::PanelType::LcdTn => 3.0,
+                },
+                self.refresh_rate as f32,
+                state.filter_intensity(&self.monitor_id),
+            ],
+            v2: [
+                match state.panel_type(&self.monitor_id) {
+                    crate::display_config::PanelType::Oled => 1.0,
+                    crate::display_config::PanelType::LcdIps => 0.0,
+                    crate::display_config::PanelType::LcdTn => 0.0,
+                    crate::display_config::PanelType::Unknown => 1.0,
+                },
+                profile.period_px(ppi),
+                profile.scroll_speed_px(ppi),
+                profile.cover_ratio,
+            ],
+            v3: [
+                profile.phase_flip_hz,
+                profile.period_px(ppi),
+                luminance_compress,
+                std::f32::consts::FRAC_PI_4,
+            ],
+            v4: [0.0, 0.0, 0.0, 0.0],
         };
         gpu.queue.write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[uniforms]));
 
