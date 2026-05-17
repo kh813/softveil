@@ -86,7 +86,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         // 3. 斜め成分 (hatch_angle 活用)
         let cos_a = cos(uniforms.hatch_angle);
         let sin_a = sin(uniforms.hatch_angle);
-        let rotated = (x * cos_a + y * sin_a) % period;
+        let rotated = ((x * cos_a + y * sin_a) % period + period) % period;
         let scrolled_d = (rotated + t * scroll_speed * 0.5) % period;
         let alpha_d = calc_louver(scrolled_d, stripe_width, edge_px, uniforms.alpha);
 
@@ -104,7 +104,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let y_p = y % p;
         
         // 四角形に近いアパーチャ（開口部）
-        let is_aperture = (x_p < p * 0.3) && (y_p < p * 0.3);
+        let is_aperture = (x_p < p * 0.45) && (y_p < p * 0.45);
         var alpha_main = select(uniforms.alpha, 0.0, is_aperture);
 
         // サブピクセル・ノイズ (R,G,B 別々に干渉)

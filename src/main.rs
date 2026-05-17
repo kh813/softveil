@@ -405,7 +405,11 @@ fn main() {
                             if let Some(cat) = category {
                                 println!("Menu: Set Display {:?} Category {:?}", monitor_id, cat);
                                 let profile = crate::display_config::DisplayProfile::from_category(cat);
-                                state.set_display_category(&monitor_id, cat, profile.ppi);
+                                let existing_ppi = state.displays.get(&monitor_id)
+                                    .map(|c| c.ppi)
+                                    .filter(|&p| p > 0.0)
+                                    .unwrap_or(profile.ppi);
+                                state.set_display_category(&monitor_id, cat, existing_ppi);
                                 state.save();
                                 overlay::sync_all(&mut overlays, &state, &gpu);
                                 needs_animation = calc_needs_animation(&overlays, &state);
