@@ -182,10 +182,6 @@ fn default_ppi() -> f32 {
 }
 
 impl DisplayConfig {
-    pub fn default() -> Self {
-        <Self as Default>::default()
-    }
-
     pub fn alpha_u8(&self) -> u8 {
         (self.alpha * 255.0).round() as u8
     }

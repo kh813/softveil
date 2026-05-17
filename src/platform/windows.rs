@@ -36,9 +36,10 @@ pub fn is_internal_display(monitor: &MonitorHandle) -> bool {
             }
         }
         
-        // Fallback: Check if it's the primary device and has a laptop-like name
-        (device.StateFlags & DISPLAY_DEVICE_PRIMARY_DEVICE) != 0 && 
-        monitor.name().map(|n| n.to_uppercase().contains("INTERNAL")).unwrap_or(false)
+        // Fallback: Check if it's the primary device and has a laptop-like width
+        let is_primary = (device.StateFlags & DISPLAY_DEVICE_PRIMARY_DEVICE) != 0;
+        let phys_w = monitor.size().width;
+        is_primary && phys_w <= 2560
     }
 }
 

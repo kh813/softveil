@@ -118,13 +118,17 @@ fn fetch_monitor_names() -> HashMap<u64, String> {
                         for display in ndrvs {
                             let name = display["_name"].as_str().unwrap_or("Unknown");
                             let id_str = display["_spdisplays_displayID"].as_str().unwrap_or("");
-                            if let Ok(id) = id_str.parse::<u64>() {
+                            
+                            let id_opt: Option<u64> = if id_str.starts_with("0x") || id_str.starts_with("0X") {
+                                u64::from_str_radix(&id_str[2..], 16).ok()
+                            } else {
+                                id_str.parse::<u64>().ok()
+                            };
+
+                            if let Some(id) = id_opt {
                                 map.insert(id, name.to_string());
                             }
                         }
-                    } else if let Some(_name) = card["_name"].as_str() {
-                        // For some built-in displays, the structure might be different
-                        // But usually ndrvs is there.
                     }
                 }
             }
@@ -194,25 +198,26 @@ pub fn detect_panel_type(monitor: &MonitorHandle) -> PanelType {
     }
 
     // EDR Check (macOS specific)
-    unsafe {
-        let mtm = MainThreadMarker::new_unchecked();
-        let screens = NSScreen::screens(mtm);
-        let target_id = get_monitor_id(monitor).0 as u32;
-        
-        for i in 0..screens.count() {
-            let screen = screens.objectAtIndex(i);
-            let description = screen.deviceDescription();
-            let screen_id_obj: Retained<NSObject> = msg_send![&*description, objectForKey: &*NSString::from_str("NSScreenNumber")];
-            let screen_id: u32 = msg_send![&*screen_id_obj, unsignedIntValue];
+    if let Some(mtm) = MainThreadMarker::new() {
+        unsafe {
+            let screens = NSScreen::screens(mtm);
+            let target_id = get_monitor_id(monitor).0 as u32;
             
-            if screen_id == target_id {
-                let edr: f64 = screen.maximumExtendedDynamicRangeColorComponentValue();
-                if edr > 2.0 {
-                    score_oled += 8; // High EDR likely means OLED or high-end Mini-LED (treat as OLED for masking)
-                } else if edr > 1.0 {
-                    score_ips += 3;
+            for i in 0..screens.count() {
+                let screen = screens.objectAtIndex(i);
+                let description = screen.deviceDescription();
+                let screen_id_obj: Retained<NSObject> = msg_send![&*description, objectForKey: &*NSString::from_str("NSScreenNumber")];
+                let screen_id: u32 = msg_send![&*screen_id_obj, unsignedIntValue];
+                
+                if screen_id == target_id {
+                    let edr: f64 = screen.maximumExtendedDynamicRangeColorComponentValue();
+                    if edr > 2.0 {
+                        score_oled += 8; // High EDR likely means OLED or high-end Mini-LED (treat as OLED for masking)
+                    } else if edr > 1.0 {
+                        score_ips += 3;
+                    }
+                    break;
                 }
-                break;
             }
         }
     }
@@ -244,9 +249,11 @@ pub fn has_screen_capture_access() -> bool {
 }
 
 pub fn show_permission_alert(title: &str, message: &str) {
+    let safe_title = title.replace('\\', "\\\\").replace('"', "\\\"");
+    let safe_message = message.replace('\\', "\\\\").replace('"', "\\\"");
     let script = format!(
         "display alert \"{}\" message \"{}\" buttons {{\"OK\"}} default button \"OK\"",
-        title, message
+        safe_title, safe_message
     );
     let _ = Command::new("osascript").args(["-e", &script]).status();
 }

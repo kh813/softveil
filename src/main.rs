@@ -120,6 +120,8 @@ fn main() {
     let proxy_for_display = proxy.clone();
     std::thread::spawn(move || {
         while display_change_rx.recv().is_ok() {
+            // Batch multiple events into one
+            while display_change_rx.try_recv().is_ok() {}
             let _ = proxy_for_display.send_event(UserEvent::DisplayChange);
         }
     });
@@ -159,17 +161,9 @@ fn main() {
 
     println!("Softveil Phase 1 running. Waiting for events...");
 
-    event_loop.run(move |event, event_loop_target, control_flow| {
-        // Determine if any active overlay needs continuous animation
-            let needs_animation = overlays.iter().any(|o| {
-            let mode = state.filter_mode(&o.monitor_id);
-            matches!(mode,
-                FilterMode::VerticalLouver |
-                FilterMode::HighIntensitySPD |
-                FilterMode::AIOcrInterference
-            ) && state.is_visible(&o.monitor_id)
-        });
+    let mut needs_animation = calc_needs_animation(&overlays, &state);
 
+    event_loop.run(move |event, event_loop_target, control_flow| {
         *control_flow = if needs_animation {
             ControlFlow::Poll
         } else {
@@ -209,6 +203,7 @@ fn main() {
                 state.toggle_global();
                 state.save();
                 overlay::sync_all(&mut overlays, &state, &gpu);
+                needs_animation = calc_needs_animation(&overlays, &state);
                 if let Some(ref t) = tray_handle {
                     t.rebuild_menu(&state, &overlays);
                 }
@@ -218,6 +213,7 @@ fn main() {
                     println!("Event: AI Peeper Detected = {}", detected);
                     state.set_peeper_detected(detected);
                     overlay::sync_all(&mut overlays, &state, &gpu);
+                    needs_animation = calc_needs_animation(&overlays, &state);
                 }
             Event::UserEvent(UserEvent::DisplayChange) => {
                 let current_monitors: Vec<_> = event_loop_target.available_monitors().collect();
@@ -249,22 +245,30 @@ fn main() {
                     for monitor in current_monitors {
                         let id = MonitorId::from_monitor(&monitor);
                         if !overlays.iter().any(|o| o.monitor_id == id) {
-                            println!("Adding display: {:?}", id);
                             let pos_key = DisplayConfig::make_position_key(monitor.position(), monitor.size());
-                            let config = cache.restore(&pos_key).unwrap_or_else(|| {
-                                let mut c = DisplayConfig::default();
-                                c.position_key = pos_key;
-                                c
-                            });
+                            let (category, ppi) = platform::detect_display_category(&monitor);
                             
-                            state.add_display(id, Some(config.clone()));
+                            println!("Adding display: {:?}, category={:?}, ppi={:.1}", id, category, ppi);
+
+                            if let Some(config) = cache.restore(&pos_key) {
+                                state.add_display(id, Some(config));
+                                // Restore might have Unknown if it was saved that way, so update if needed
+                                if state.display_category(&id) == DisplayCategory::Unknown {
+                                    state.set_display_category(&id, category, ppi);
+                                }
+                            } else {
+                                // New display
+                                state.add_display_with_pos_and_profile(id, pos_key, category, ppi);
+                            }
+                            
+                            let alpha = state.effective_alpha_u8(&id);
                             let _ = overlay::add_display(
                                 &mut overlays,
                                 event_loop_target,
                                 &monitor,
                                 &state,
                                 state.is_visible(&id),
-                                config.alpha_u8(),
+                                alpha,
                                 &gpu
                             );
 
@@ -273,10 +277,6 @@ fn main() {
                                     state.set_panel_type(&id, overlay.panel_type);
                                 }
                             }
-
-                            // 【追加】カテゴリと PPI を自動検出
-                            let (category, ppi) = platform::detect_display_category(&monitor);
-                            state.set_display_category(&id, category, ppi);
                         }
                     }
                     
@@ -284,6 +284,7 @@ fn main() {
                         t.rebuild_menu(&state, &overlays);
                     }
                     state.save();
+                    needs_animation = calc_needs_animation(&overlays, &state);
                 } else {
                     // IDs match, but we might need to refresh names after prefetch
                     if let Some(ref t) = tray_handle {
@@ -302,6 +303,7 @@ fn main() {
                 state.toggle_global();
                 state.save();
                 overlay::sync_all(&mut overlays, &state, &gpu);
+                needs_animation = calc_needs_animation(&overlays, &state);
                 if let Some(ref t) = tray_handle {
                     t.rebuild_menu(&state, &overlays);
                 }
@@ -316,6 +318,7 @@ fn main() {
                         state.toggle_display(&monitor_id);
                         state.save();
                         overlay::sync_all(&mut overlays, &state, &gpu);
+                        needs_animation = calc_needs_animation(&overlays, &state);
                         if let Some(ref t) = tray_handle {
                             t.rebuild_menu(&state, &overlays);
                         }
@@ -334,6 +337,7 @@ fn main() {
                                 state.set_display_alpha(&monitor_id, pct as f32 / 100.0);
                                 state.save();
                                 overlay::sync_all(&mut overlays, &state, &gpu);
+                                needs_animation = calc_needs_animation(&overlays, &state);
                                 if let Some(ref t) = tray_handle {
                                     t.rebuild_menu(&state, &overlays);
                                 }
@@ -375,6 +379,7 @@ fn main() {
                                 state.set_filter_mode(&monitor_id, m);
                                 state.save();
                                 overlay::sync_all(&mut overlays, &state, &gpu);
+                                needs_animation = calc_needs_animation(&overlays, &state);
                                 if let Some(ref t) = tray_handle {
                                     t.rebuild_menu(&state, &overlays);
                                 }
@@ -403,6 +408,7 @@ fn main() {
                                 state.set_display_category(&monitor_id, cat, profile.ppi);
                                 state.save();
                                 overlay::sync_all(&mut overlays, &state, &gpu);
+                                needs_animation = calc_needs_animation(&overlays, &state);
                                 if let Some(ref t) = tray_handle {
                                     t.rebuild_menu(&state, &overlays);
                                 }
@@ -430,6 +436,7 @@ fn main() {
                                 state.set_panel_type(&monitor_id, p);
                                 state.save();
                                 overlay::sync_all(&mut overlays, &state, &gpu);
+                                needs_animation = calc_needs_animation(&overlays, &state);
                                 if let Some(ref t) = tray_handle {
                                     t.rebuild_menu(&state, &overlays);
                                 }
@@ -450,6 +457,7 @@ fn main() {
                                 state.set_filter_intensity(&monitor_id, intensity);
                                 state.save();
                                 overlay::sync_all(&mut overlays, &state, &gpu);
+                                needs_animation = calc_needs_animation(&overlays, &state);
                                 if let Some(ref t) = tray_handle {
                                     t.rebuild_menu(&state, &overlays);
                                 }
@@ -491,4 +499,15 @@ fn main() {
             *control_flow = ControlFlow::Exit;
         }
     });
+}
+
+fn calc_needs_animation(overlays: &[overlay::OverlayWindow], state: &AppState) -> bool {
+    overlays.iter().any(|o| {
+        let mode = state.filter_mode(&o.monitor_id);
+        matches!(mode,
+            FilterMode::VerticalLouver |
+            FilterMode::HighIntensitySPD |
+            FilterMode::AIOcrInterference
+        ) && state.is_visible(&o.monitor_id)
+    })
 }
