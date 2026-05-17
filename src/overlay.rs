@@ -49,27 +49,24 @@ impl GpuContext {
 struct Uniforms {
     time: f32,
     mode: u32,
-    // 0: BlackLayer（単色）
-    // 1: VerticalLouver（縦ルーバー）
-    // 2: AIOcrInterference（AI OCR 妨害）
-    // 3: HighIntensitySPD（SPD プロテクト）
     alpha: f32,
     width: f32,
     height: f32,
-    panel_type: u32, // 0: Unknown, 1: Oled, 2: LcdIps, 3: LcdTn
+    panel_type: u32,
     refresh_rate: u32,
     intensity: f32,
     bidirectional: u32,
-    // 物理サイズ適応パラメータ
     period_px: f32,
     scroll_speed_px: f32,
     cover_ratio: f32,
     phase_flip_hz: f32,
-    // LCD コントラストジャマー用
     grid_period_px: f32,
     luminance_compress: f32,
     hatch_angle: f32,
-    _pad0: u32, // 16-byte alignment
+    _pad0: u32,
+    _pad1: u32,
+    _pad2: u32,
+    _pad3: u32,
 }
 
 pub struct OverlayWindow {
@@ -280,6 +277,9 @@ impl OverlayWindow {
             luminance_compress,
             hatch_angle: std::f32::consts::FRAC_PI_4,
             _pad0: 0,
+            _pad1: 0,
+            _pad2: 0,
+            _pad3: 0,
         };
         gpu.queue.write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[uniforms]));
 
