@@ -133,13 +133,28 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             let b_size = 4.0;
             let bx = i32(x % b_size);
             let by = i32(y % b_size);
-            let bayer = array<f32, 16>(
-                 0.0, 8.0, 2.0,10.0,
-                12.0, 4.0,14.0, 6.0,
-                 3.0,11.0, 1.0, 9.0,
-                15.0, 7.0,13.0, 5.0
-            );
-            let b_val = bayer[by * 4 + bx] / 16.0;
+            let b_idx = by * 4 + bx;
+            var b_val_raw: f32;
+            switch (b_idx) {
+                case 0: { b_val_raw = 0.0; }
+                case 1: { b_val_raw = 8.0; }
+                case 2: { b_val_raw = 2.0; }
+                case 3: { b_val_raw = 10.0; }
+                case 4: { b_val_raw = 12.0; }
+                case 5: { b_val_raw = 4.0; }
+                case 6: { b_val_raw = 14.0; }
+                case 7: { b_val_raw = 6.0; }
+                case 8: { b_val_raw = 3.0; }
+                case 9: { b_val_raw = 11.0; }
+                case 10: { b_val_raw = 1.0; }
+                case 11: { b_val_raw = 9.0; }
+                case 12: { b_val_raw = 15.0; }
+                case 13: { b_val_raw = 7.0; }
+                case 14: { b_val_raw = 13.0; }
+                case 15: { b_val_raw = 5.0; }
+                default: { b_val_raw = 0.0; }
+            }
+            let b_val = b_val_raw / 16.0;
             let mesh_alpha = select(0.0, uniforms.alpha * 0.3, b_val > 0.7);
 
             // ── 輝度圧縮 (Luminance Compress) ──────────────────────────

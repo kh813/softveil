@@ -124,7 +124,7 @@ pub enum PanelType {
 }
 
 impl PanelType {
-    pub fn to_str(&self) -> &'static str {
+    pub fn to_str(self) -> &'static str {
         match self {
             PanelType::Unknown => "Unknown",
             PanelType::Oled => "OLED",
@@ -148,9 +148,11 @@ impl MonitorId {
     pub fn from_monitor(monitor: &MonitorHandle) -> Self {
         platform::get_monitor_id(monitor)
     }
+}
 
-    pub fn to_string(&self) -> String {
-        format!("0x{:x}", self.0)
+impl std::fmt::Display for MonitorId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "0x{:x}", self.0)
     }
 }
 

@@ -128,5 +128,5 @@ pub fn get_monitor_name(monitor: &MonitorHandle) -> String {
 
 #[cfg(target_os = "macos")]
 pub fn has_screen_capture_access() -> bool {
-    return macos::has_screen_capture_access();
+    macos::has_screen_capture_access()
 }

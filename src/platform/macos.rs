@@ -107,7 +107,7 @@ pub fn get_monitor_name(monitor: &MonitorHandle) -> String {
 fn fetch_monitor_names() -> HashMap<u64, String> {
     let mut map = HashMap::new();
     let output = Command::new("system_profiler")
-        .args(&["SPDisplaysDataType", "-json"])
+        .args(["SPDisplaysDataType", "-json"])
         .output();
 
     if let Ok(output) = output {
@@ -144,15 +144,13 @@ pub fn register_hotplug_observer(tx: mpsc::Sender<DisplayChangeEvent>) -> Hotplu
         }
         
         // Prefetch monitor names in background (Fix #7)
-        thread::spawn(|| {
-            thread::sleep(Duration::from_millis(500)); // Wait for OS to settle
-            let names = fetch_monitor_names();
-            if let Ok(mut cache) = MONITOR_NAME_CACHE.lock() {
-                *cache = Some(names);
-            }
+        // Note: We don't update the cache directly here to avoid threading issues with UI.
+        // The event loop will handle the refresh when it receives DisplayChangeEvent::Changed.
+        let tx_clone = tx.clone();
+        thread::spawn(move || {
+            thread::sleep(Duration::from_millis(800)); // Wait for OS to settle
+            let _ = tx_clone.send(DisplayChangeEvent::Changed);
         });
-
-        let _ = tx.send(DisplayChangeEvent::Changed);
     });
     let block = block.copy();
     
@@ -250,5 +248,5 @@ pub fn show_permission_alert(title: &str, message: &str) {
         "display alert \"{}\" message \"{}\" buttons {{\"OK\"}} default button \"OK\"",
         title, message
     );
-    let _ = Command::new("osascript").args(&["-e", &script]).status();
+    let _ = Command::new("osascript").args(["-e", &script]).status();
 }

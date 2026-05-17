@@ -24,6 +24,7 @@ use std::sync::mpsc;
 enum UserEvent {
     Hotkey(HotkeyEvent),
     AIDetected(bool),
+    DisplayChange,
 }
 
 fn main() {
@@ -115,6 +116,14 @@ fn main() {
     let (display_change_tx, display_change_rx) = mpsc::channel();
     let _hotplug_guard = platform::register_hotplug_handler(display_change_tx);
 
+    // Spawn a thread to forward display change events to the event loop
+    let proxy_for_display = proxy.clone();
+    std::thread::spawn(move || {
+        while display_change_rx.recv().is_ok() {
+            let _ = proxy_for_display.send_event(UserEvent::DisplayChange);
+        }
+    });
+
     let app_path = std::env::current_exe().expect("Failed to get current exe path");
     let auto_launcher = AutoLaunchBuilder::new()
         .set_app_name("Softveil")
@@ -168,8 +177,8 @@ fn main() {
         };
 
         match event {
-            Event::MainEventsCleared => {
-                if needs_animation {
+            Event::MainEventsCleared
+                if needs_animation => {
                     for overlay in overlays.iter_mut() {
                         if state.is_visible(&overlay.monitor_id) {
                             let alpha = state.effective_alpha_u8(&overlay.monitor_id);
@@ -177,16 +186,14 @@ fn main() {
                         }
                     }
                 }
-            }
-            Event::RedrawRequested(window_id) => {
+            Event::RedrawRequested(window_id)
                 // Pollモード中はMainEventsClearedで描画するため不要
-                if !needs_animation {
+                if !needs_animation => {
                     if let Some(overlay) = overlays.iter_mut().find(|o| o.window.id() == window_id) {
                         let alpha = state.effective_alpha_u8(&overlay.monitor_id);
                         let _ = overlay.draw(&gpu, &state, alpha);
                     }
                 }
-            }
             Event::WindowEvent {
                 event: tao::event::WindowEvent::Resized(size),
                 window_id,
@@ -206,11 +213,82 @@ fn main() {
                     t.rebuild_menu(&state, &overlays);
                 }
             }
-            Event::UserEvent(UserEvent::AIDetected(detected)) => {
-                if state.ai_peeper_detected != detected {
+            Event::UserEvent(UserEvent::AIDetected(detected))
+                if state.ai_peeper_detected != detected => {
                     println!("Event: AI Peeper Detected = {}", detected);
                     state.set_peeper_detected(detected);
                     overlay::sync_all(&mut overlays, &state, &gpu);
+                }
+            Event::UserEvent(UserEvent::DisplayChange) => {
+                let current_monitors: Vec<_> = event_loop_target.available_monitors().collect();
+                let current_ids: Vec<MonitorId> = current_monitors.iter().map(MonitorId::from_monitor).collect();
+                
+                let mut existing_ids: Vec<MonitorId> = overlays.iter().map(|o| o.monitor_id).collect();
+                existing_ids.sort();
+                let mut new_ids = current_ids.clone();
+                new_ids.sort();
+
+                if existing_ids != new_ids {
+                    println!("Display configuration changed. Recalculating... Current IDs: {:?}, New IDs: {:?}", existing_ids, new_ids);
+                    
+                    let mut removed_ids = Vec::new();
+                    for overlay in &overlays {
+                        if !current_ids.contains(&overlay.monitor_id) {
+                            removed_ids.push(overlay.monitor_id);
+                        }
+                    }
+                    
+                    for id in removed_ids {
+                        println!("Removing display: {:?}", id);
+                        if let Some(config) = state.remove_display(&id) {
+                            cache.store(config);
+                        }
+                        overlay::remove_display(&mut overlays, &id);
+                    }
+                    
+                    for monitor in current_monitors {
+                        let id = MonitorId::from_monitor(&monitor);
+                        if !overlays.iter().any(|o| o.monitor_id == id) {
+                            println!("Adding display: {:?}", id);
+                            let pos_key = DisplayConfig::make_position_key(monitor.position(), monitor.size());
+                            let config = cache.restore(&pos_key).unwrap_or_else(|| {
+                                let mut c = DisplayConfig::default();
+                                c.position_key = pos_key;
+                                c
+                            });
+                            
+                            state.add_display(id, Some(config.clone()));
+                            let _ = overlay::add_display(
+                                &mut overlays,
+                                event_loop_target,
+                                &monitor,
+                                &state,
+                                state.is_visible(&id),
+                                config.alpha_u8(),
+                                &gpu
+                            );
+
+                            if let Some(overlay) = overlays.iter().find(|o| o.monitor_id == id) {
+                                if state.panel_type(&id) == crate::display_config::PanelType::Unknown {
+                                    state.set_panel_type(&id, overlay.panel_type);
+                                }
+                            }
+
+                            // 【追加】カテゴリと PPI を自動検出
+                            let (category, ppi) = platform::detect_display_category(&monitor);
+                            state.set_display_category(&id, category, ppi);
+                        }
+                    }
+                    
+                    if let Some(ref t) = tray_handle {
+                        t.rebuild_menu(&state, &overlays);
+                    }
+                    state.save();
+                } else {
+                    // IDs match, but we might need to refresh names after prefetch
+                    if let Some(ref t) = tray_handle {
+                        t.rebuild_menu(&state, &overlays);
+                    }
                 }
             }
             _ => (),
@@ -230,10 +308,9 @@ fn main() {
             } else if id == MENU_ID_QUIT {
                 println!("Menu: Quit");
                 *control_flow = ControlFlow::Exit;
-            } else if id.starts_with(MENU_ID_DISPLAY_TOGGLE_PREFIX) {
-                let id_str = &id[MENU_ID_DISPLAY_TOGGLE_PREFIX.len()..];
-                if id_str.starts_with("0x") {
-                    if let Ok(val) = u64::from_str_radix(&id_str[2..], 16) {
+            } else if let Some(id_str) = id.strip_prefix(MENU_ID_DISPLAY_TOGGLE_PREFIX) {
+                if let Some(id_hex) = id_str.strip_prefix("0x") {
+                    if let Ok(val) = u64::from_str_radix(id_hex, 16) {
                         let monitor_id = MonitorId(val);
                         println!("Menu: Toggle Display {:?}", monitor_id);
                         state.toggle_display(&monitor_id);
@@ -244,14 +321,13 @@ fn main() {
                         }
                     }
                 }
-            } else if id.starts_with(MENU_ID_ALPHA_PREFIX) {
-                let rest = &id[MENU_ID_ALPHA_PREFIX.len()..];
+            } else if let Some(rest) = id.strip_prefix(MENU_ID_ALPHA_PREFIX) {
                 let parts: Vec<&str> = rest.split(':').collect();
                 if parts.len() == 2 {
                     let id_str = parts[0];
                     let alpha_str = parts[1];
-                    if id_str.starts_with("0x") {
-                        if let Ok(val) = u64::from_str_radix(&id_str[2..], 16) {
+                    if let Some(id_hex) = id_str.strip_prefix("0x") {
+                        if let Ok(val) = u64::from_str_radix(id_hex, 16) {
                             let monitor_id = MonitorId(val);
                             if let Ok(pct) = alpha_str.parse::<u32>() {
                                 println!("Menu: Set Display {:?} Alpha {}%", monitor_id, pct);
@@ -265,14 +341,13 @@ fn main() {
                         }
                     }
                 }
-            } else if id.starts_with(MENU_ID_MODE_PREFIX) {
-                let rest = &id[MENU_ID_MODE_PREFIX.len()..];
+            } else if let Some(rest) = id.strip_prefix(MENU_ID_MODE_PREFIX) {
                 let parts: Vec<&str> = rest.split(':').collect();
                 if parts.len() == 2 {
                     let id_str = parts[0];
                     let mode_str = parts[1];
-                    if id_str.starts_with("0x") {
-                        if let Ok(val) = u64::from_str_radix(&id_str[2..], 16) {
+                    if let Some(id_hex) = id_str.strip_prefix("0x") {
+                        if let Ok(val) = u64::from_str_radix(id_hex, 16) {
                             let monitor_id = MonitorId(val);
                             let mode = match mode_str {
                                 "BlackLayer" => Some(FilterMode::BlackLayer),
@@ -307,14 +382,13 @@ fn main() {
                         }
                     }
                 }
-            } else if id.starts_with(MENU_ID_CATEGORY_PREFIX) {
-                let rest = &id[MENU_ID_CATEGORY_PREFIX.len()..];
+            } else if let Some(rest) = id.strip_prefix(MENU_ID_CATEGORY_PREFIX) {
                 let parts: Vec<&str> = rest.split(':').collect();
                 if parts.len() == 2 {
                     let id_str = parts[0];
                     let cat_str = parts[1];
-                    if id_str.starts_with("0x") {
-                        if let Ok(val) = u64::from_str_radix(&id_str[2..], 16) {
+                    if let Some(id_hex) = id_str.strip_prefix("0x") {
+                        if let Ok(val) = u64::from_str_radix(id_hex, 16) {
                             let monitor_id = MonitorId(val);
                             let category = match cat_str {
                                 "NotebookFhd" => Some(DisplayCategory::NotebookFhd),
@@ -336,14 +410,13 @@ fn main() {
                         }
                     }
                 }
-            } else if id.starts_with(MENU_ID_PANEL_PREFIX) {
-                let rest = &id[MENU_ID_PANEL_PREFIX.len()..];
+            } else if let Some(rest) = id.strip_prefix(MENU_ID_PANEL_PREFIX) {
                 let parts: Vec<&str> = rest.split(':').collect();
                 if parts.len() == 2 {
                     let id_str = parts[0];
                     let panel_str = parts[1];
-                    if id_str.starts_with("0x") {
-                        if let Ok(val) = u64::from_str_radix(&id_str[2..], 16) {
+                    if let Some(id_hex) = id_str.strip_prefix("0x") {
+                        if let Ok(val) = u64::from_str_radix(id_hex, 16) {
                             let monitor_id = MonitorId(val);
                             let panel_type = match panel_str {
                                 "Unknown" => Some(crate::display_config::PanelType::Unknown),
@@ -364,14 +437,13 @@ fn main() {
                         }
                     }
                 }
-            } else if id.starts_with(MENU_ID_INTENSITY_PREFIX) {
-                let rest = &id[MENU_ID_INTENSITY_PREFIX.len()..];
+            } else if let Some(rest) = id.strip_prefix(MENU_ID_INTENSITY_PREFIX) {
                 let parts: Vec<&str> = rest.split(':').collect();
                 if parts.len() == 2 {
                     let id_str = parts[0];
                     let intensity_str = parts[1];
-                    if id_str.starts_with("0x") {
-                        if let Ok(val) = u64::from_str_radix(&id_str[2..], 16) {
+                    if let Some(id_hex) = id_str.strip_prefix("0x") {
+                        if let Ok(val) = u64::from_str_radix(id_hex, 16) {
                             let monitor_id = MonitorId(val);
                             if let Ok(intensity) = intensity_str.parse::<f32>() {
                                 println!("Menu: Set Display {:?} Filter Intensity {}", monitor_id, intensity);
@@ -412,85 +484,11 @@ fn main() {
             }
         }
 
-        // Handle Hotplug events
-        if let Ok(_) = display_change_rx.try_recv() {
-            let current_monitors: Vec<_> = event_loop_target.available_monitors().collect();
-            let current_ids: Vec<MonitorId> = current_monitors.iter().map(MonitorId::from_monitor).collect();
-            
-            let mut existing_ids: Vec<MonitorId> = overlays.iter().map(|o| o.monitor_id).collect();
-            existing_ids.sort();
-            let mut new_ids = current_ids.clone();
-            new_ids.sort();
-
-            if existing_ids != new_ids {
-                println!("Display configuration changed. Recalculating... Current IDs: {:?}, New IDs: {:?}", existing_ids, new_ids);
-                
-                let mut removed_ids = Vec::new();
-                for overlay in &overlays {
-                    if !current_ids.contains(&overlay.monitor_id) {
-                        removed_ids.push(overlay.monitor_id);
-                    }
-                }
-                
-                for id in removed_ids {
-                    println!("Removing display: {:?}", id);
-                    if let Some(config) = state.remove_display(&id) {
-                        cache.store(config);
-                    }
-                    overlay::remove_display(&mut overlays, &id);
-                }
-                
-                for monitor in current_monitors {
-                    let id = MonitorId::from_monitor(&monitor);
-                    if !overlays.iter().any(|o| o.monitor_id == id) {
-                        println!("Adding display: {:?}", id);
-                        let pos_key = DisplayConfig::make_position_key(monitor.position(), monitor.size());
-                        let config = cache.restore(&pos_key).unwrap_or_else(|| {
-                            let mut c = DisplayConfig::default();
-                            c.position_key = pos_key;
-                            c
-                        });
-                        
-                        state.add_display(id, Some(config.clone()));
-                        let _ = overlay::add_display(
-                            &mut overlays,
-                            event_loop_target,
-                            &monitor,
-                            &state,
-                            state.is_visible(&id),
-                            config.alpha_u8(),
-                            &gpu
-                        );
-
-                        if let Some(overlay) = overlays.iter().find(|o| o.monitor_id == id) {
-                            if state.panel_type(&id) == crate::display_config::PanelType::Unknown {
-                                state.set_panel_type(&id, overlay.panel_type);
-                            }
-                        }
-
-                        // 【追加】カテゴリと PPI を自動検出
-                        let (category, ppi) = platform::detect_display_category(&monitor);
-                        state.set_display_category(&id, category, ppi);
-                    }
-                }
-                
-                if let Some(ref t) = tray_handle {
-                    t.rebuild_menu(&state, &overlays);
-                }
-                state.save();
-            } else {
-                println!("Hotplug event received but ignored (monitor IDs match).");
-            }
-        }
-
-        match event {
-            Event::WindowEvent {
+        if let Event::WindowEvent {
                 event: tao::event::WindowEvent::CloseRequested,
                 ..
-            } => {
-                *control_flow = ControlFlow::Exit;
-            }
-            _ => (),
+            } = event {
+            *control_flow = ControlFlow::Exit;
         }
     });
 }

@@ -47,7 +47,7 @@ pub fn start_detection_thread(
             if path.exists() {
                 match onnx()
                     .model_for_path(&path)
-                    .and_then(|m| m.with_input_fact(0, f32::fact(&[1, 3, 240, 320]).into()))
+                    .and_then(|m| m.with_input_fact(0, f32::fact([1, 3, 240, 320]).into()))
                     .and_then(|m| m.into_optimized())
                     .and_then(|m| m.into_runnable()) 
                 {
@@ -67,7 +67,7 @@ pub fn start_detection_thread(
             let mut cursor = std::io::Cursor::new(model_bytes);
             match onnx()
                 .model_for_read(&mut cursor)
-                .and_then(|m| m.with_input_fact(0, f32::fact(&[1, 3, 240, 320]).into()))
+                .and_then(|m| m.with_input_fact(0, f32::fact([1, 3, 240, 320]).into()))
                 .and_then(|m| m.into_optimized())
                 .and_then(|m| m.into_runnable())
             {

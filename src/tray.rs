@@ -55,6 +55,17 @@ impl TrayHandle {
     }
 
     pub fn rebuild_menu(&self, state: &AppState, overlays: &[OverlayWindow]) {
+        #[cfg(target_os = "macos")]
+        {
+            // macOS UI updates must happen on the main thread to avoid menu displacement.
+            // This acts as a runtime check (assertion in debug mode).
+            if objc2::MainThreadMarker::new().is_none() {
+                #[cfg(debug_assertions)]
+                panic!("Tray menu rebuild called from non-main thread on macOS! This is a regression.");
+                #[cfg(not(debug_assertions))]
+                return; // Silently fail in release but prevent displacement
+            }
+        }
         let menu = build_menu(state, overlays);
         self.icon.set_menu(Some(Box::new(menu)));
     }
@@ -189,7 +200,7 @@ fn build_menu(state: &AppState, overlays: &[OverlayWindow]) -> Menu {
             let is_checked = (config.alpha - target_alpha).abs() < 0.01;
             let item = CheckMenuItem::with_id(
                 format!("{}{}:{}", MENU_ID_ALPHA_PREFIX, id_str, alpha_pct),
-                &format!("{}%", alpha_pct),
+                format!("{}%", alpha_pct),
                 true,
                 is_checked,
                 None,
