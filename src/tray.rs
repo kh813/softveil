@@ -11,6 +11,7 @@ pub const MENU_ID_MODE_PREFIX: &str = "mode:";
 pub const MENU_ID_PANEL_PREFIX: &str = "panel:";
 pub const MENU_ID_CATEGORY_PREFIX: &str = "category:";
 pub const MENU_ID_INTENSITY_PREFIX: &str = "intensity:";
+pub const MENU_ID_RESET_RECOMMENDED: &str = "reset_recommended:";
 pub const MENU_ID_AUTO_START: &str = "auto_start";
 pub const MENU_ID_AI_DETECTION: &str = "ai_detection";
 pub const MENU_ID_QUIT: &str = "quit";
@@ -156,6 +157,7 @@ fn build_menu(state: &AppState, overlays: &[OverlayWindow]) -> Menu {
         let mode_submenu = Submenu::new("フィルター形式", true);
         let modes = [
             (FilterMode::HighIntensitySPD,    "SPD プロテクト ✦ (推奨)"),
+            (FilterMode::StealthDark,         "ステルス・ダーク (LLCC)"),
             (FilterMode::VerticalLouver,      "標準ルーバー"),
             (FilterMode::AIOcrInterference,   "AI OCR 妨害"),
             (FilterMode::BlackLayer,          "単色（輝度を抑える）"),
@@ -208,6 +210,16 @@ fn build_menu(state: &AppState, overlays: &[OverlayWindow]) -> Menu {
             let _ = alpha_submenu.append(&item);
         }
         let _ = display_menu.append(&alpha_submenu);
+
+        let _ = display_menu.append(&PredefinedMenuItem::separator());
+
+        let reset_item = MenuItem::with_id(
+            format!("{}{}", MENU_ID_RESET_RECOMMENDED, id_str),
+            "おすすめ設定を適用 (自動判定)",
+            true,
+            None,
+        );
+        let _ = display_menu.append(&reset_item);
 
         let _ = menu.append(&display_menu);
     }

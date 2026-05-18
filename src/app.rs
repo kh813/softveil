@@ -27,6 +27,12 @@ impl Default for AppConfig {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct OSSettingsSnapshot {
+    pub was_dark_mode: bool,
+    pub original_brightness: f32,
+}
+
 pub struct AppState {
     pub global_enabled: bool,
     pub displays: HashMap<MonitorId, DisplayConfig>,
@@ -34,6 +40,7 @@ pub struct AppState {
     pub auto_start: bool,
     pub ai_detection_enabled: bool,
     pub ai_peeper_detected: bool,
+    pub stealth_snapshot: Option<OSSettingsSnapshot>,
     stored_display_settings: HashMap<String, DisplayConfig>,
 }
 
@@ -57,6 +64,7 @@ impl AppState {
             auto_start: config.auto_start,
             ai_detection_enabled: config.ai_detection_enabled,
             ai_peeper_detected: false,
+            stealth_snapshot: None,
             stored_display_settings: config.display_settings,
         }
     }
@@ -97,20 +105,59 @@ impl AppState {
         if let Some(config) = self.displays.get_mut(id) {
             config.filter_mode = mode;
         }
+        self.check_stealth_transition();
+    }
+
+    pub fn check_stealth_transition(&mut self) {
+        if !self.global_enabled {
+            if self.stealth_snapshot.is_some() {
+                self.restore_os_settings();
+            }
+            return;
+        }
+
+        let any_stealth = self.displays.values().any(|c| c.enabled && c.filter_mode == FilterMode::StealthDark);
+        
+        if any_stealth && self.stealth_snapshot.is_none() {
+            // Activate stealth mode
+            let was_dark = crate::platform::is_dark_mode();
+            let orig_brightness = crate::platform::get_brightness();
+            
+            self.stealth_snapshot = Some(OSSettingsSnapshot {
+                was_dark_mode: was_dark,
+                original_brightness: orig_brightness,
+            });
+            
+            crate::platform::set_dark_mode(true);
+            crate::platform::set_brightness(0.25); // Stealth brightness 25%
+        } else if !any_stealth && self.stealth_snapshot.is_some() {
+            // Restore settings
+            self.restore_os_settings();
+        }
+    }
+
+    pub fn restore_os_settings(&mut self) {
+        if let Some(snapshot) = self.stealth_snapshot.take() {
+            crate::platform::set_dark_mode(snapshot.was_dark_mode);
+            crate::platform::set_brightness(snapshot.original_brightness);
+        }
     }
 
     pub fn toggle_global(&mut self) -> bool {
         self.global_enabled = !self.global_enabled;
+        self.check_stealth_transition();
         self.global_enabled
     }
 
     pub fn toggle_display(&mut self, id: &MonitorId) -> bool {
-        if let Some(config) = self.displays.get_mut(id) {
+        let enabled = if let Some(config) = self.displays.get_mut(id) {
             config.enabled = !config.enabled;
             config.enabled
         } else {
             false
-        }
+        };
+        self.check_stealth_transition();
+        enabled
     }
 
     pub fn toggle_auto_start(&mut self) -> bool {
@@ -157,8 +204,20 @@ impl AppState {
             // If the filter mode is default (BlackLayer) or we are transitioning from Unknown,
             // apply the recommended filter mode for the new panel type.
             if config.filter_mode == FilterMode::BlackLayer || old_panel == crate::display_config::PanelType::Unknown {
-                config.filter_mode = panel_type.recommended_filter_mode();
+                let profile = crate::display_config::DisplayProfile::from_config(config.display_category, panel_type);
+                config.filter_mode = profile.recommended_filter_mode(panel_type);
             }
+        }
+    }
+
+    pub fn reset_to_recommended(&mut self, id: &MonitorId) {
+        if let Some(config) = self.displays.get_mut(id) {
+            let profile = crate::display_config::DisplayProfile::from_config(config.display_category, config.panel_type);
+            config.filter_mode = profile.recommended_filter_mode(config.panel_type);
+            config.filter_intensity = profile.recommended_intensity();
+            config.alpha = profile.recommended_alpha();
+            // PPI and Category are typically kept as they are detected/set, 
+            // but we ensure intensity/mode are optimal for them.
         }
     }
 
@@ -178,6 +237,7 @@ impl AppState {
     pub fn add_display(&mut self, id: MonitorId, config: Option<DisplayConfig>) {
         let config = config.unwrap_or_else(|| self.default_config.clone());
         self.displays.insert(id, config);
+        self.check_stealth_transition();
     }
 
     pub fn add_display_with_pos_and_profile(
@@ -198,16 +258,20 @@ impl AppState {
             config.ppi = ppi;
         }
 
-        // パネル種別の推奨フィルターモードも Unknown の場合に適用
+        // パネル種別の推奨フィルターモードも BlackLayer (デフォルト) の場合に適用
         if config.filter_mode == FilterMode::BlackLayer {
-            config.filter_mode = config.panel_type.recommended_filter_mode();
+            let profile = crate::display_config::DisplayProfile::from_config(config.display_category, config.panel_type);
+            config.filter_mode = profile.recommended_filter_mode(config.panel_type);
         }
 
         self.displays.insert(id, config);
+        self.check_stealth_transition();
     }
 
     pub fn remove_display(&mut self, id: &MonitorId) -> Option<DisplayConfig> {
-        self.displays.remove(id)
+        let res = self.displays.remove(id);
+        self.check_stealth_transition();
+        res
     }
 
     pub fn all_displays_enabled(&self) -> bool {

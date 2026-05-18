@@ -11,7 +11,7 @@ mod ai_detection;
 
 use app::AppState;
 use display_config::{MonitorId, DisplayConfig, DisconnectedCache, FilterMode, DisplayCategory};
-use tray::{TrayHandle, MENU_ID_GLOBAL_TOGGLE, MENU_ID_DISPLAY_TOGGLE_PREFIX, MENU_ID_ALPHA_PREFIX, MENU_ID_MODE_PREFIX, MENU_ID_PANEL_PREFIX, MENU_ID_CATEGORY_PREFIX, MENU_ID_INTENSITY_PREFIX, MENU_ID_AUTO_START, MENU_ID_AI_DETECTION, MENU_ID_QUIT};
+use tray::{TrayHandle, MENU_ID_GLOBAL_TOGGLE, MENU_ID_DISPLAY_TOGGLE_PREFIX, MENU_ID_ALPHA_PREFIX, MENU_ID_MODE_PREFIX, MENU_ID_PANEL_PREFIX, MENU_ID_CATEGORY_PREFIX, MENU_ID_INTENSITY_PREFIX, MENU_ID_RESET_RECOMMENDED, MENU_ID_AUTO_START, MENU_ID_AI_DETECTION, MENU_ID_QUIT};
 use ai_detection::{AIDetectionCommand, start_detection_thread};
 use auto_launch::AutoLaunchBuilder;
 use hotkey::HotkeyEvent;
@@ -61,7 +61,15 @@ fn main() {
         }
     }
 
-    let gpu = std::sync::Arc::new(pollster::block_on(overlay::GpuContext::new()).expect("Failed to initialize GPU"));
+    let gpu = match pollster::block_on(overlay::GpuContext::new()) {
+        Some(ctx) => std::sync::Arc::new(ctx),
+        None => {
+            let msg = "GPUの初期化に失敗しました。グラフィックドライバーが最新であることを確認してください。\nFailed to initialize GPU. Please ensure your graphics drivers are up to date.";
+            eprintln!("{}", msg);
+            platform::show_error_dialog("Softveil Error", msg);
+            std::process::exit(1);
+        }
+    };
     
     // Initial display registration
     for monitor in &monitors {
@@ -89,6 +97,7 @@ fn main() {
     }
     
     // Sync initial overlays with loaded state
+    state.check_stealth_transition();
     overlay::sync_all(&mut overlays, &state, &gpu);
     
     let tray_handle = match TrayHandle::new(&state, &overlays) {
@@ -103,7 +112,17 @@ fn main() {
     };
     
     let (hotkey_tx, hotkey_rx) = mpsc::channel();
-    let _hotkey_guard = hotkey::register(hotkey_tx).expect("Failed to register hotkey");
+    let _hotkey_guard = match hotkey::register(hotkey_tx) {
+        Ok(guard) => Some(guard),
+        Err(e) => {
+            eprintln!("Failed to register hotkey: {:?}", e);
+            platform::show_error_dialog(
+                "Softveil Warning",
+                "グローバルショートカット（Ctrl+Shift+P）の登録に失敗しました。他のアプリと競合している可能性があります。\nFailed to register global hotkey (Ctrl+Shift+P). It might be in use by another application."
+            );
+            None
+        }
+    };
 
     // Spawn a thread to forward hotkey events to the event loop
     let proxy_for_hotkey = proxy.clone();
@@ -126,19 +145,24 @@ fn main() {
         }
     });
 
-    let app_path = std::env::current_exe().expect("Failed to get current exe path");
-    let auto_launcher = AutoLaunchBuilder::new()
-        .set_app_name("Softveil")
-        .set_app_path(&app_path.to_string_lossy())
-        .set_use_launch_agent(true) // For macOS
-        .build()
-        .expect("Failed to create auto-launcher");
-
-    // Sync auto-launch state with config on startup
-    if state.auto_start {
-        let _ = auto_launcher.enable();
+    let app_path = std::env::current_exe().unwrap_or_default();
+    let auto_launcher = if !app_path.as_os_str().is_empty() {
+        AutoLaunchBuilder::new()
+            .set_app_name("Softveil")
+            .set_app_path(&app_path.to_string_lossy())
+            .set_use_launch_agent(true) // For macOS
+            .build()
+            .ok()
     } else {
-        let _ = auto_launcher.disable();
+        None
+    };
+
+    if let Some(ref al) = auto_launcher {
+        if state.auto_start {
+            let _ = al.enable();
+        } else {
+            let _ = al.disable();
+        }
     }
 
     let (ai_cmd_tx, ai_cmd_rx) = mpsc::channel();
@@ -309,6 +333,7 @@ fn main() {
                 }
             } else if id == MENU_ID_QUIT {
                 println!("Menu: Quit");
+                state.restore_os_settings();
                 *control_flow = ControlFlow::Exit;
             } else if let Some(id_str) = id.strip_prefix(MENU_ID_DISPLAY_TOGGLE_PREFIX) {
                 if let Some(id_hex) = id_str.strip_prefix("0x") {
@@ -358,6 +383,7 @@ fn main() {
                                 "VerticalLouver" => Some(FilterMode::VerticalLouver),
                                 "AIOcrInterference" => Some(FilterMode::AIOcrInterference),
                                 "HighIntensitySPD" => Some(FilterMode::HighIntensitySPD),
+                                "StealthDark" => Some(FilterMode::StealthDark),
                                 _ => None,
                             };
                             if let Some(m) = mode {
@@ -404,7 +430,8 @@ fn main() {
                             };
                             if let Some(cat) = category {
                                 println!("Menu: Set Display {:?} Category {:?}", monitor_id, cat);
-                                let profile = crate::display_config::DisplayProfile::from_category(cat);
+                                let panel_type = state.panel_type(&monitor_id);
+                                let profile = crate::display_config::DisplayProfile::from_config(cat, panel_type);
                                 let existing_ppi = state.displays.get(&monitor_id)
                                     .map(|c| c.ppi)
                                     .filter(|&p| p > 0.0)
@@ -469,6 +496,20 @@ fn main() {
                         }
                     }
                 }
+            } else if let Some(rest) = id.strip_prefix(MENU_ID_RESET_RECOMMENDED) {
+                if let Some(id_hex) = rest.strip_prefix("0x") {
+                    if let Ok(val) = u64::from_str_radix(id_hex, 16) {
+                        let monitor_id = MonitorId(val);
+                        println!("Menu: Reset Display {:?} to Recommended Settings", monitor_id);
+                        state.reset_to_recommended(&monitor_id);
+                        state.save();
+                        overlay::sync_all(&mut overlays, &state, &gpu);
+                        needs_animation = calc_needs_animation(&overlays, &state);
+                        if let Some(ref t) = tray_handle {
+                            t.rebuild_menu(&state, &overlays);
+                        }
+                    }
+                }
             } else if id == MENU_ID_AI_DETECTION {
                 println!("Menu: Toggle AI Detection");
                 let enabled = state.toggle_ai_detection();
@@ -484,10 +525,12 @@ fn main() {
             } else if id == MENU_ID_AUTO_START {
                 println!("Menu: Toggle Auto Start");
                 let enabled = state.toggle_auto_start();
-                if enabled {
-                    let _ = auto_launcher.enable();
-                } else {
-                    let _ = auto_launcher.disable();
+                if let Some(ref al) = auto_launcher {
+                    if enabled {
+                        let _ = al.enable();
+                    } else {
+                        let _ = al.disable();
+                    }
                 }
                 state.save();
                 if let Some(ref t) = tray_handle {
@@ -500,6 +543,7 @@ fn main() {
                 event: tao::event::WindowEvent::CloseRequested,
                 ..
             } = event {
+            state.restore_os_settings();
             *control_flow = ControlFlow::Exit;
         }
     });

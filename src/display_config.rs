@@ -10,6 +10,7 @@ pub enum FilterMode {
     VerticalLouver,
     AIOcrInterference,
     HighIntensitySPD,
+    StealthDark,
 }
 
 /// ディスプレイの用途・サイズカテゴリ
@@ -45,50 +46,77 @@ pub struct DisplayProfile {
 }
 
 impl DisplayProfile {
-    /// カテゴリから推奨パラメータを生成する
-    pub fn from_category(category: DisplayCategory) -> Self {
-        match category {
+    /// カテゴリとパネル種別から推奨パラメータを生成する
+    pub fn from_config(category: DisplayCategory, panel_type: PanelType) -> Self {
+        let mut profile = match category {
             DisplayCategory::NotebookFhd => Self {
                 category,
-                ppi: 157.0,          // 14インチFHD 代表値
-                period_mm: 0.96,     // 6px @ 157PPI に相当
-                cover_ratio: 0.67,   // 67% 遮蔽
-                scroll_speed_mm_per_sec: 48.0,  // 約 300px/s @ 157PPI
+                ppi: 157.0,
+                period_mm: 1.0,      // 約6px
+                cover_ratio: 0.70,
+                scroll_speed_mm_per_sec: 45.0,
                 phase_flip_hz: 30.0,
             },
             DisplayCategory::NotebookHiDpi => Self {
                 category,
-                ppi: 220.0,          // 14インチ QHD/Retina 代表値
-                period_mm: 0.82,     // 視距離が近いため密度を上げる
-                cover_ratio: 0.70,
-                scroll_speed_mm_per_sec: 55.0,  // 視距離が近いため速く見せる
+                ppi: 220.0,
+                period_mm: 0.8,      // 高精細なので細かく
+                cover_ratio: 0.75,
+                scroll_speed_mm_per_sec: 50.0,
                 phase_flip_hz: 30.0,
             },
             DisplayCategory::ExternalLarge4K => Self {
                 category,
-                ppi: 163.0,          // 27インチ 4K 代表値
-                period_mm: 1.80,     // 視距離が遠いため周期を広げる
-                cover_ratio: 0.62,   // 広い縞でも視覚ノイズを確保
-                scroll_speed_mm_per_sec: 80.0,  // 視距離が遠いため速度を上げる
+                ppi: 163.0,
+                period_mm: 1.5,      // 離れて見るので太く
+                cover_ratio: 0.65,
+                scroll_speed_mm_per_sec: 70.0,
                 phase_flip_hz: 25.0,
             },
             DisplayCategory::ExternalGeneral => Self {
                 category,
-                ppi: 92.0,           // 27インチ FHD 代表値
-                period_mm: 1.30,
-                cover_ratio: 0.65,
-                scroll_speed_mm_per_sec: 60.0,
+                ppi: 92.0,
+                period_mm: 1.2,
+                cover_ratio: 0.68,
+                scroll_speed_mm_per_sec: 55.0,
                 phase_flip_hz: 28.0,
             },
             DisplayCategory::Unknown => Self {
                 category,
                 ppi: 110.0,
-                period_mm: 1.20,
+                period_mm: 1.2,
                 cover_ratio: 0.65,
                 scroll_speed_mm_per_sec: 50.0,
                 phase_flip_hz: 30.0,
             },
+        };
+
+        // パネル種別による微調整
+        if panel_type == PanelType::Oled {
+            profile.cover_ratio += 0.05; // OLEDはコントラストが高いので遮蔽率を上げる
+            profile.scroll_speed_mm_per_sec *= 1.2; // 応答速度が速いので速く動かせる
         }
+
+        profile
+    }
+
+    pub fn recommended_filter_mode(&self, panel_type: PanelType) -> FilterMode {
+        match panel_type {
+            PanelType::Unknown => FilterMode::BlackLayer,
+            _ => FilterMode::HighIntensitySPD,
+        }
+    }
+
+    pub fn recommended_intensity(&self) -> f32 {
+        match self.category {
+            DisplayCategory::NotebookHiDpi => 0.75, // 高精細は密度高め
+            DisplayCategory::ExternalLarge4K => 1.5, // 大型は密度低め（見やすさ重視）
+            _ => 1.0,
+        }
+    }
+
+    pub fn recommended_alpha(&self) -> f32 {
+        0.30 // 標準的な濃度
     }
 
     /// PPI から period_px (シェーダーに渡す値) を計算する
@@ -130,13 +158,6 @@ impl PanelType {
             PanelType::Oled => "OLED",
             PanelType::LcdIps => "LCD IPS",
             PanelType::LcdTn => "LCD TN",
-        }
-    }
-
-    pub fn recommended_filter_mode(&self) -> FilterMode {
-        match self {
-            PanelType::Oled | PanelType::LcdIps | PanelType::LcdTn => FilterMode::HighIntensitySPD,
-            PanelType::Unknown => FilterMode::BlackLayer,
         }
     }
 }

@@ -3,19 +3,6 @@ struct VertexOutput {
     @location(0) tex_coords: vec2<f32>,
 };
 
-@vertex
-fn vs_main(
-    @builtin(vertex_index) in_vertex_index: u32,
-) -> VertexOutput {
-    var out: VertexOutput;
-    // Full-screen triangle trick
-    let x = f32(i32(in_vertex_index) << 1 & 2) - 1.0;
-    let y = f32(i32(in_vertex_index) & 2) - 1.0;
-    out.clip_position = vec4<f32>(x, y, 0.0, 1.0);
-    out.tex_coords = vec2<f32>((x + 1.0) * 0.5, (1.0 - y) * 0.5);
-    return out;
-}
-
 struct Uniforms {
     v0: vec4<f32>, // time, mode, alpha, width
     v1: vec4<f32>, // height, panel_type, refresh_rate, intensity
@@ -149,32 +136,51 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             return vec4<f32>(0.0, 0.0, 0.0, final_alpha);
             
         } else {
-            // LCD V7 Luminous Crystal (Subpixel Selective)
-            let p = max(period_px * 0.12, 1.5);
-            let slow_offset = t * 0.2;
+            // LCD V8 Hybrid Shield (SPD Mode)
+            // Use full period and scroll speed for robust protection
+            let p = max(period_px * inten, 4.0);
+            let stripe_w = p * clamp(cover_ratio, 0.6, 0.85);
+            let edge = 1.0;
             
-            let x_p = ((x + slow_offset) % p + p) % p;
-            let is_slit = x_p < (p * 0.15 * inten);
-            let alpha_main = select(alpha * 0.92, 0.0, is_slit);
+            // Slow continuous scrolls (faster than before to avoid aliasing pulses)
+            let sx = t * (scroll_speed_px * 0.05 + 5.0);
+            let sy = t * (scroll_speed_px * 0.1 + 10.0);
+            
+            // Horizontal and Vertical louver composite
+            let v_stripe = calc_louver(((x + sx) % p + p) % p, stripe_w, edge, alpha);
+            let h_stripe = calc_louver(((y + sy) % p + p) % p, stripe_w, edge, alpha);
+            
+            // Add a high-frequency distraction layer to break up OCR
+            let n = stable_noise(vec2<f32>(x, y) + floor(t * 12.0));
+            let noise = select(0.0, alpha * 0.2, n > 0.96);
+            
+            let final_a = max(max(v_stripe, h_stripe), noise);
+            return vec4<f32>(0.0, 0.0, 0.0, final_a);
+        }
+    } else if (mode == 4u) {
+        // ── StealthDark (Integrated Stealth Switch) ──────────────────
+        // Optimized for dark environments and low brightness.
+        
+        // 1. Static UHF Dithering (1x1 checkerboard)
+        let dither = (floor(x) + floor(y)) % 2.0;
+        let alpha_dither = alpha * 0.15 * dither;
 
-            let bx = i32(x) % 4;
-            let by = i32(y) % 4;
-            let b_idx = ((by * 4 + bx) % 16 + 16) % 16;
-            var b_v: f32;
-            switch (b_idx) {
-                case 0: { b_v = 0.0; } case 1: { b_v = 8.0; } case 2: { b_v = 2.0; } case 3: { b_v = 10.0; }
-                case 4: { b_v = 12.0; } case 5: { b_v = 4.0; } case 6: { b_v = 14.0; } case 7: { b_v = 6.0; }
-                case 8: { b_v = 3.0; } case 9: { b_v = 11.0; } case 10: { b_v = 1.0; } case 11: { b_v = 9.0; }
-                case 12: { b_v = 15.0; } case 13: { b_v = 7.0; } case 14: { b_v = 13.0; } case 15: { b_v = 5.0; }
-                default: { b_v = 0.0; }
-            }
-            let b_val = b_v / 16.0;
-            let mesh_alpha = select(0.0, alpha * 0.25, b_val > 0.75);
-
-            let final_alpha = clamp(alpha_main + mesh_alpha, 0.0, 1.0);
-            let haze = select(0.0, 0.05 * alpha, b_val > 0.95);
-
-            return vec4<f32>(haze, haze, haze, final_alpha);
+        if (panel_type == 1u) {
+            // OLED: Narrow Aperture Enhancement (UNA)
+            let p = 2.0; 
+            let is_aperture = (u32(x) % 2u == 0u) && (u32(y) % 2u == 0u);
+            var alpha_main = select(alpha * 0.92, 0.0, is_aperture);
+            return vec4<f32>(0.0, 0.0, 0.0, max(alpha_main, alpha_dither));
+        } else {
+            // LCD: Low-Luma Contrast Collapse (LLCC)
+            let glow = 0.08 * luminance_compress; 
+            
+            let p = max(period_px * 0.5, 3.0);
+            let is_grid = (x % p < 1.0) || (y % p < 1.0);
+            let alpha_main = select(alpha * 0.85, 0.0, is_grid);
+            
+            let final_alpha = clamp(max(alpha_main, alpha_dither), 0.0, 1.0);
+            return vec4<f32>(glow, glow, glow, final_alpha);
         }
     }
 

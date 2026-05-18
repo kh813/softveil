@@ -223,21 +223,34 @@ impl OverlayWindow {
         let size = self.window.inner_size();
 
         // DisplayProfile を取得
-        let profile = crate::display_config::DisplayProfile::from_category(
-            state.display_category(&self.monitor_id)
+        let panel_type = state.panel_type(&self.monitor_id);
+        let profile = crate::display_config::DisplayProfile::from_config(
+            state.display_category(&self.monitor_id),
+            panel_type
         );
         let ppi = state.displays.get(&self.monitor_id).map(|c| c.ppi).unwrap_or(110.0);
-        let luminance_compress = (0.20 / profile.intensity_scale()).clamp(0.10, 0.35);
+        let luminance_compress = (0.20f32 / profile.intensity_scale()).clamp(0.10, 0.35);
+
+        let mode_val = match state.filter_mode(&self.monitor_id) {
+            FilterMode::BlackLayer => 0.0,
+            FilterMode::VerticalLouver => 1.0,
+            FilterMode::AIOcrInterference => 2.0,
+            FilterMode::HighIntensitySPD => 3.0,
+            FilterMode::StealthDark => 4.0,
+        };
+
+        // Phase 6: 自動適応モード (§4.7.5)
+        // OS 側でダークモードが選択されている場合、(BlackLayer 以外なら) 自動的にステルス最適化フィルタを適用
+        let effective_mode = if mode_val > 0.0 && mode_val < 4.0 && platform::is_dark_mode() {
+            4.0
+        } else {
+            mode_val
+        };
 
         let uniforms = Uniforms {
             v0: [
                 self.start_time.elapsed().as_secs_f32(),
-                match state.filter_mode(&self.monitor_id) {
-                    FilterMode::BlackLayer => 0.0,
-                    FilterMode::VerticalLouver => 1.0,
-                    FilterMode::AIOcrInterference => 2.0,
-                    FilterMode::HighIntensitySPD => 3.0,
-                },
+                effective_mode,
                 alpha as f32 / 255.0,
                 size.width as f32,
             ],

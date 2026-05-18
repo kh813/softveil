@@ -10,7 +10,7 @@ use std::sync::{Mutex, mpsc};
 use std::collections::HashMap;
 use std::process::Command;
 use serde_json::Value;
-use objc2_foundation::{NSNotificationCenter, NSString, NSObject, NSNotification};
+use objc2_foundation::{NSNotificationCenter, NSDistributedNotificationCenter, NSString, NSObject, NSNotification};
 use block2::StackBlock;
 use std::thread;
 use std::time::Duration;
@@ -83,8 +83,31 @@ pub fn apply_overlay_settings(window: &Window, alpha: u8) {
     }
 }
 
+pub fn register_theme_change_observer(tx: mpsc::Sender<DisplayChangeEvent>) -> Retained<NSObject> {
+    let center = NSDistributedNotificationCenter::defaultCenter();
+    let notification_name = NSString::from_str("AppleInterfaceThemeChangedNotification");
+    
+    let block = StackBlock::new(move |_notif: &NSNotification| {
+        let _ = tx.send(DisplayChangeEvent::Changed);
+    });
+    let block = block.copy();
+    
+    let token: Retained<NSObject> = unsafe {
+        msg_send![
+            &*center,
+            addObserverForName: &*notification_name,
+            object: None::<&NSObject>,
+            suspensionBehavior: 0isize, // NSNotificationSuspensionBehaviorDeliverImmediately
+            usingBlock: &*block
+        ]
+    };
+    
+    token
+}
+
 pub struct HotplugGuard {
     token: Retained<NSObject>,
+    theme_token: Retained<NSObject>,
 }
 
 pub fn get_monitor_name(monitor: &MonitorHandle) -> String {
@@ -141,19 +164,17 @@ pub fn register_hotplug_observer(tx: mpsc::Sender<DisplayChangeEvent>) -> Hotplu
     let center = NSNotificationCenter::defaultCenter();
     let notification_name = NSString::from_str("NSApplicationDidChangeScreenParametersNotification");
     
+    let tx_clone = tx.clone();
     let block = StackBlock::new(move |_notif: &NSNotification| {
         // Clear cache on hotplug
         if let Ok(mut cache) = MONITOR_NAME_CACHE.lock() {
             *cache = None;
         }
         
-        // Prefetch monitor names in background (Fix #7)
-        // Note: We don't update the cache directly here to avoid threading issues with UI.
-        // The event loop will handle the refresh when it receives DisplayChangeEvent::Changed.
-        let tx_clone = tx.clone();
+        let tx_clone2 = tx_clone.clone();
         thread::spawn(move || {
             thread::sleep(Duration::from_millis(800)); // Wait for OS to settle
-            let _ = tx_clone.send(DisplayChangeEvent::Changed);
+            let _ = tx_clone2.send(DisplayChangeEvent::Changed);
         });
     });
     let block = block.copy();
@@ -168,14 +189,18 @@ pub fn register_hotplug_observer(tx: mpsc::Sender<DisplayChangeEvent>) -> Hotplu
         ]
     };
     
-    HotplugGuard { token }
+    let theme_token = register_theme_change_observer(tx.clone());
+    
+    HotplugGuard { token, theme_token }
 }
 
 impl Drop for HotplugGuard {
     fn drop(&mut self) {
         let center = NSNotificationCenter::defaultCenter();
+        let dist_center = NSDistributedNotificationCenter::defaultCenter();
         unsafe {
             let _: () = msg_send![&*center, removeObserver: &*self.token];
+            let _: () = msg_send![&*dist_center, removeObserver: &*self.theme_token];
         }
     }
 }
@@ -206,7 +231,10 @@ pub fn detect_panel_type(monitor: &MonitorHandle) -> PanelType {
             for i in 0..screens.count() {
                 let screen = screens.objectAtIndex(i);
                 let description = screen.deviceDescription();
-                let screen_id_obj: Retained<NSObject> = msg_send![&*description, objectForKey: &*NSString::from_str("NSScreenNumber")];
+                let screen_id_obj: Retained<NSObject> = msg_send![
+                    &*description,
+                    objectForKey: &*NSString::from_str("NSScreenNumber")
+                ];
                 let screen_id: u32 = msg_send![&*screen_id_obj, unsignedIntValue];
                 
                 if screen_id == target_id {
@@ -248,7 +276,56 @@ pub fn has_screen_capture_access() -> bool {
     unsafe { CGPreflightScreenCaptureAccess() }
 }
 
+pub fn is_dark_mode() -> bool {
+    let output = Command::new("defaults")
+        .args(["read", "-g", "AppleInterfaceStyle"])
+        .output();
+    if let Ok(output) = output {
+        String::from_utf8_lossy(&output.stdout).trim() == "Dark"
+    } else {
+        false
+    }
+}
+
+pub fn set_dark_mode(enabled: bool) {
+    let script = format!(
+        "tell application \"System Events\" to tell appearance preferences to set dark mode to {}",
+        enabled
+    );
+    let _ = Command::new("osascript").args(["-e", &script]).status();
+}
+
+pub fn get_brightness() -> f32 {
+    // macOS does not have a simple public API for this. 
+    // Usually requires IOKit or private CoreDisplay.
+    // For now, return a default value or try to use a common tool if present.
+    0.5 
+}
+
+pub fn set_brightness(level: f32) {
+    // level: 0.0 to 1.0
+    // Try using osascript to control brightness via UI if possible, 
+    // but it is very version dependent.
+    // A better way is to use IOKit, but that requires more complex setup.
+    let script = format!(
+        "tell application \"System Events\" to repeat with i from 1 to 16
+            key code 144 -- brightness up
+        end repeat
+        repeat with i from 1 to {}
+            key code 145 -- brightness down
+        end repeat",
+        ((1.0 - level) * 16.0) as i32
+    );
+    // Note: This is a hacky way and might not work on all systems.
+    // In a real product, IOKit or CoreDisplay would be used.
+    let _ = Command::new("osascript").args(["-e", &script]).status();
+}
+
 pub fn show_permission_alert(title: &str, message: &str) {
+    show_error_dialog(title, message);
+}
+
+pub fn show_error_dialog(title: &str, message: &str) {
     let safe_title = title.replace('\\', "\\\\").replace('"', "\\\"");
     let safe_message = message.replace('\\', "\\\\").replace('"', "\\\"");
     let script = format!(

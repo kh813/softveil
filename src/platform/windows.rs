@@ -6,6 +6,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::*;
 use windows_sys::Win32::Foundation::*;
 use windows_sys::Win32::Graphics::Gdi::*;
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows_sys::Win32::System::Registry::*;
 
 use std::sync::mpsc;
 use std::thread;
@@ -171,6 +172,21 @@ extern "system" fn window_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPA
             }
             0
         }
+        WM_SETTINGCHANGE => {
+            unsafe {
+                if lparam != 0 {
+                    let s = String::from_utf16_lossy(std::slice::from_raw_parts(lparam as *const u16, 20));
+                    if s.contains("ImmersiveColorSet") {
+                        let tx_ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut mpsc::Sender<DisplayChangeEvent>;
+                        if !tx_ptr.is_null() {
+                            let tx = &*tx_ptr;
+                            let _ = tx.send(DisplayChangeEvent::Changed);
+                        }
+                    }
+                }
+            }
+            0
+        }
         WM_DESTROY => {
             unsafe {
                 PostQuitMessage(0);
@@ -187,6 +203,74 @@ pub fn apply_overlay_settings(window: &Window, alpha: u8) {
         set_ex_style(hwnd, WS_EX_TRANSPARENT | WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW);
         SetLayeredWindowAttributes(hwnd, 0, alpha, LWA_ALPHA);
         SetWindowPos(hwnd, HWND_TOPMOST as HWND, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+    }
+}
+
+use std::process::Command;
+
+pub fn is_dark_mode() -> bool {
+    unsafe {
+        let subkey = "Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize\0"
+            .encode_utf16()
+            .collect::<Vec<u16>>();
+        let value_name = "AppsUseLightTheme\0".encode_utf16().collect::<Vec<u16>>();
+        
+        let mut hkey: HKEY = null_mut();
+        if RegOpenKeyExW(HKEY_CURRENT_USER, subkey.as_ptr(), 0, KEY_READ, &mut hkey) == 0 {
+            let mut data: u32 = 0;
+            let mut size = std::mem::size_of::<u32>() as u32;
+            let res = RegQueryValueExW(hkey, value_name.as_ptr(), null_mut(), null_mut(), &mut data as *mut _ as *mut _, &mut size);
+            RegCloseKey(hkey);
+            if res == 0 {
+                return data == 0; // 0 means Dark Mode
+            }
+        }
+    }
+    false
+}
+
+pub fn set_dark_mode(enabled: bool) {
+    unsafe {
+        let subkey = "Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize\0"
+            .encode_utf16()
+            .collect::<Vec<u16>>();
+        let value_name = "AppsUseLightTheme\0".encode_utf16().collect::<Vec<u16>>();
+        let value_name_system = "SystemUsesLightTheme\0".encode_utf16().collect::<Vec<u16>>();
+        
+        let mut hkey: HKEY = null_mut();
+        if RegOpenKeyExW(HKEY_CURRENT_USER, subkey.as_ptr(), 0, KEY_SET_VALUE, &mut hkey) == 0 {
+            let data: u32 = if enabled { 0 } else { 1 };
+            RegSetValueExW(hkey, value_name.as_ptr(), 0, REG_DWORD, &data as *const _ as *const _, 4);
+            RegSetValueExW(hkey, value_name_system.as_ptr(), 0, REG_DWORD, &data as *const _ as *const _, 4);
+            RegCloseKey(hkey);
+        }
+    }
+}
+
+pub fn get_brightness() -> f32 {
+    let output = Command::new("powershell")
+        .args(["-Command", "Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightness | Select-Object -ExpandProperty CurrentBrightness"])
+        .output();
+    if let Ok(output) = output {
+        let s = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if let Ok(b) = s.parse::<f32>() {
+            return b / 100.0;
+        }
+    }
+    0.5
+}
+
+pub fn set_brightness(level: f32) {
+    let b = (level * 100.0).clamp(0.0, 100.0) as i32;
+    let script = format!("(Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightnessMethods).WmiSetBrightness(0, {})", b);
+    let _ = Command::new("powershell").args(["-Command", &script]).status();
+}
+
+pub fn show_error_dialog(title: &str, message: &str) {
+    let wide_title: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
+    let wide_message: Vec<u16> = message.encode_utf16().chain(std::iter::once(0)).collect();
+    unsafe {
+        MessageBoxW(std::ptr::null_mut(), wide_message.as_ptr(), wide_title.as_ptr(), MB_ICONERROR | MB_OK);
     }
 }
 

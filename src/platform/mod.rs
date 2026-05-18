@@ -126,7 +126,45 @@ pub fn get_monitor_name(monitor: &MonitorHandle) -> String {
     return windows::get_monitor_name(monitor);
 }
 
+pub fn show_error_dialog(title: &str, message: &str) {
+    #[cfg(target_os = "macos")]
+    macos::show_error_dialog(title, message);
+    #[cfg(target_os = "windows")]
+    windows::show_error_dialog(title, message);
+}
+
 #[cfg(target_os = "macos")]
 pub fn has_screen_capture_access() -> bool {
-    macos::has_screen_capture_access()
+    return macos::has_screen_capture_access();
+}
+
+pub fn is_dark_mode() -> bool {
+    #[cfg(target_os = "macos")]
+    return macos::is_dark_mode();
+    #[cfg(target_os = "windows")]
+    return windows::is_dark_mode();
+}
+
+#[allow(dead_code)]
+pub fn set_dark_mode(enabled: bool) {
+    #[cfg(target_os = "macos")]
+    macos::set_dark_mode(enabled);
+    #[cfg(target_os = "windows")]
+    windows::set_dark_mode(enabled);
+}
+
+#[allow(dead_code)]
+pub fn get_brightness() -> f32 {
+    #[cfg(target_os = "macos")]
+    return macos::get_brightness();
+    #[cfg(target_os = "windows")]
+    return windows::get_brightness();
+}
+
+#[allow(dead_code)]
+pub fn set_brightness(level: f32) {
+    #[cfg(target_os = "macos")]
+    macos::set_brightness(level);
+    #[cfg(target_os = "windows")]
+    windows::set_brightness(level);
 }
