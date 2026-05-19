@@ -33,13 +33,18 @@ fn stable_noise(p: vec2<f32>) -> f32 {
     return fract(sin(dot(p, vec2<f32>(12.9898, 78.233))) * 43758.5453);
 }
 
-fn calc_louver(scrolled: f32, stripe_width: f32, edge_px: f32, base_alpha: f32) -> f32 {
+fn calc_louver(scrolled: f32, stripe_width: f32, edge_px: f32, base_alpha: f32, is_light_mode: bool) -> f32 {
     let s = scrolled;
+    // Light Mode では「開口部（透明な部分）」のベース濃度を上げることで、画面全体の眩しさを抑え秘匿性を高める
+    let min_alpha_ratio = select(0.15, 0.40, is_light_mode);
+    
     if (s < stripe_width) {
         let dist_from_edge = min(stripe_width - s, s);
-        return base_alpha * select(1.0, dist_from_edge / edge_px, dist_from_edge < edge_px);
+        // 滑らかなエッジ処理（エイリアシング対策）
+        let edge_factor = clamp(dist_from_edge / edge_px, 0.0, 1.0);
+        return base_alpha * mix(min_alpha_ratio, 1.0, edge_factor);
     } else {
-        return base_alpha * 0.15;
+        return base_alpha * min_alpha_ratio;
     }
 }
 
@@ -66,6 +71,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let luminance_compress = uniforms.v3.z;
     let hatch_angle = uniforms.v3.w;
 
+    let is_light_mode = uniforms.v4.x > 0.5;
+
     let x = in.tex_coords.x * width;
     let y = in.tex_coords.y * height;
 
@@ -83,18 +90,18 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
         // 1. 水平縞 (上下方向)
         let scrolled_y = ((y + t * scroll_speed) % period + period) % period;
-        let alpha_h = calc_louver(scrolled_y, stripe_width, edge_px, alpha);
+        let alpha_h = calc_louver(scrolled_y, stripe_width, edge_px, alpha, is_light_mode);
 
         // 2. 垂直縞 (左右方向)
         let scrolled_x = ((x + t * scroll_speed * 0.7 + burn_in_offset) % period + period) % period;
-        let alpha_v = calc_louver(scrolled_x, stripe_width, edge_px, alpha);
+        let alpha_v = calc_louver(scrolled_x, stripe_width, edge_px, alpha, is_light_mode);
 
         // 3. 斜め成分
         let cos_a = cos(hatch_angle);
         let sin_a = sin(hatch_angle);
         let rotated = (x * cos_a + y * sin_a);
         let scrolled_d = ((rotated + t * scroll_speed * 0.5) % period + period) % period;
-        let alpha_d = calc_louver(scrolled_d, stripe_width, edge_px, alpha);
+        let alpha_d = calc_louver(scrolled_d, stripe_width, edge_px, alpha, is_light_mode);
 
         let alpha_out = max(max(alpha_h, alpha_v), alpha_d);
         return vec4<f32>(0.0, 0.0, 0.0, alpha_out);
@@ -108,7 +115,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let y_p = (y % p + p) % p;
         
         let is_aperture = (x_p < p * 0.45) && (y_p < p * 0.45);
-        var alpha_main = select(alpha, 0.0, is_aperture);
+        // Light Mode では Aperture 部分も少し暗くする
+        let min_a = select(0.0, alpha * 0.3, is_light_mode);
+        var alpha_main = select(alpha, min_a, is_aperture);
 
         let n_coord = floor(vec2<f32>(x, y) * 2.0); 
         let n = stable_noise(n_coord + floor(t * 24.0));
@@ -128,7 +137,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             
             let is_slit = (x_p < p * 0.1) || (y_p < p * 0.1);
             let alpha_base = alpha * 0.95;
-            let alpha_slit = alpha * 0.1;
+            let alpha_slit = select(alpha * 0.1, alpha * 0.4, is_light_mode);
             var alpha_main = select(alpha_base, alpha_slit, is_slit);
 
             let sub_n = stable_noise(vec2<f32>(x * 3.0, y) + t);
@@ -147,8 +156,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             let sy = t * (scroll_speed_px * 0.1 + 10.0);
             
             // Horizontal and Vertical louver composite
-            let v_stripe = calc_louver(((x + sx) % p + p) % p, stripe_w, edge, alpha);
-            let h_stripe = calc_louver(((y + sy) % p + p) % p, stripe_w, edge, alpha);
+            let v_stripe = calc_louver(((x + sx) % p + p) % p, stripe_w, edge, alpha, is_light_mode);
+            let h_stripe = calc_louver(((y + sy) % p + p) % p, stripe_w, edge, alpha, is_light_mode);
             
             // Add a high-frequency distraction layer to break up OCR
             let n = stable_noise(vec2<f32>(x, y) + floor(t * 12.0));

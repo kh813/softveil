@@ -279,7 +279,10 @@ impl OverlayWindow {
                 luminance_compress,
                 std::f32::consts::FRAC_PI_4,
             ],
-            v4: [0.0, 0.0, 0.0, 0.0],
+            v4: [
+                if platform::is_dark_mode() { 0.0 } else { 1.0 }, // Light Mode flag
+                0.0, 0.0, 0.0
+            ],
         };
         gpu.queue.write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[uniforms]));
 

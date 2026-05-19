@@ -52,18 +52,18 @@ impl DisplayProfile {
             DisplayCategory::NotebookFhd => Self {
                 category,
                 ppi: 157.0,
-                period_mm: 1.0,      // 約6px
-                cover_ratio: 0.70,
-                scroll_speed_mm_per_sec: 45.0,
-                phase_flip_hz: 30.0,
+                period_mm: 1.5,      // 1.0から1.5へ（少し太くして干渉を抑える）
+                cover_ratio: 0.82,   // 0.70から0.82へ（遮蔽率アップ）
+                scroll_speed_mm_per_sec: 15.0, // 45.0から15.0へ（フリッカーを抑える低速スクロール）
+                phase_flip_hz: 0.0,
             },
             DisplayCategory::NotebookHiDpi => Self {
                 category,
                 ppi: 220.0,
-                period_mm: 0.8,      // 高精細なので細かく
-                cover_ratio: 0.75,
-                scroll_speed_mm_per_sec: 50.0,
-                phase_flip_hz: 30.0,
+                period_mm: 1.2,      // 0.8から1.2へ
+                cover_ratio: 0.85,   // 0.75から0.85へ
+                scroll_speed_mm_per_sec: 20.0, // 50.0から20.0へ
+                phase_flip_hz: 0.0,
             },
             DisplayCategory::ExternalLarge4K => Self {
                 category,
