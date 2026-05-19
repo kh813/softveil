@@ -312,10 +312,13 @@ fn main() {
                     if let Some(ref t) = tray_handle {
                         t.rebuild_menu(&state, &overlays);
                     }
+                    state.check_stealth_transition();
                     state.save();
                     needs_animation = calc_needs_animation(&overlays, &state);
                 } else {
-                    // IDs match, but we might need to refresh names after prefetch
+                    // IDs match: テーマ変更（ダークモード切替）の可能性があるため再描画する
+                    overlay::sync_all(&mut overlays, &state, &gpu);
+                    needs_animation = calc_needs_animation(&overlays, &state);
                     if let Some(ref t) = tray_handle {
                         t.rebuild_menu(&state, &overlays);
                     }

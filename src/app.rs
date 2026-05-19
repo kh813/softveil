@@ -261,7 +261,6 @@ impl AppState {
     pub fn add_display(&mut self, id: MonitorId, config: Option<DisplayConfig>) {
         let config = config.unwrap_or_else(|| self.default_config.clone());
         self.displays.insert(id, config);
-        self.check_stealth_transition();
     }
 
     pub fn add_display_with_pos_and_profile(
@@ -289,13 +288,10 @@ impl AppState {
         }
 
         self.displays.insert(id, config);
-        self.check_stealth_transition();
     }
 
     pub fn remove_display(&mut self, id: &MonitorId) -> Option<DisplayConfig> {
-        let res = self.displays.remove(id);
-        self.check_stealth_transition();
-        res
+        self.displays.remove(id)
     }
 
     pub fn all_displays_enabled(&self) -> bool {

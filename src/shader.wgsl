@@ -109,8 +109,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     } else if (mode == 2u) {
         // ── AIOcrInterference (Phase 5: Subpixel UHD Jamming Prototype) ──
         let p = max(period_px * 0.4 * max(inten, 0.2), 1.0);
-        let row = floor(y / p);
-        let x_off = select(0.0, p * 0.5, row % 2.0 == 0.0);
+        let row = i32(floor(y / p));
+        let x_off = select(0.0, p * 0.5, row % 2 == 0);
         let x_p = ((x + x_off + t * scroll_speed_px * 0.1) % p + p) % p;
         let y_p = (y % p + p) % p;
         
@@ -131,13 +131,14 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         if (panel_type == 1u) {
             // OLED V5 Subpixel Kinetic Void
             let p = max(period_px * 0.2, 2.0);
-            let phase = floor(t * 60.0) % 4.0 * (p * 0.25);
+            let fps = max(refresh_rate, 30u);
+            let phase = floor(t * f32(fps)) % 4.0 * (p * 0.25);
             let x_p = ((x + phase) % p + p) % p;
             let y_p = ((y + phase * 0.7) % p + p) % p;
             
             let is_slit = (x_p < p * 0.1) || (y_p < p * 0.1);
             let alpha_base = alpha * 0.95;
-            let alpha_slit = select(alpha * 0.1, alpha * 0.4, is_light_mode);
+            let alpha_slit = select(alpha * 0.1, alpha * 0.25, is_light_mode);
             var alpha_main = select(alpha_base, alpha_slit, is_slit);
 
             let sub_n = stable_noise(vec2<f32>(x * 3.0, y) + t);
@@ -176,16 +177,21 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
         if (panel_type == 1u) {
             // OLED: Narrow Aperture Enhancement (UNA)
-            let p = 2.0; 
-            let is_aperture = (u32(x) % 2u == 0u) && (u32(y) % 2u == 0u);
+            let p = 2.0;
+            // 超低速ドリフト（約 0.1px/s、視覚上は静止）
+            let drift = floor(t * 0.1) % 2.0;
+            let drift_x = u32(drift);
+            let drift_y = u32(drift);
+            let is_aperture = ((u32(x) + drift_x) % 2u == 0u) && ((u32(y) + drift_y) % 2u == 0u);
             var alpha_main = select(alpha * 0.92, 0.0, is_aperture);
             return vec4<f32>(0.0, 0.0, 0.0, max(alpha_main, alpha_dither));
         } else {
             // LCD: Low-Luma Contrast Collapse (LLCC)
             let glow = 0.08 * luminance_compress; 
             
-            let p = max(period_px * 0.5, 3.0);
-            let is_grid = (x % p < 1.0) || (y % p < 1.0);
+            let p_raw = max(period_px * 0.5, 3.0);
+            let p = u32(max(floor(p_raw), 3.0)); // 整数ピクセルにスナップ
+            let is_grid = (u32(floor(x)) % p < 1u) || (u32(floor(y)) % p < 1u);
             let alpha_main = select(alpha * 0.85, 0.0, is_grid);
             
             let final_alpha = clamp(max(alpha_main, alpha_dither), 0.0, 1.0);

@@ -236,13 +236,7 @@ impl OverlayWindow {
             FilterMode::StealthDark => 4.0,
         };
 
-        // Phase 6: 自動適応モード (§4.7.5)
-        // OS 側でダークモードが選択されている場合、(BlackLayer 以外なら) 自動的にステルス最適化フィルタを適用
-        let effective_mode = if mode_val > 0.0 && mode_val < 4.0 && platform::is_dark_mode() {
-            4.0
-        } else {
-            mode_val
-        };
+        let effective_mode = mode_val;
 
         let uniforms = Uniforms {
             v0: [
