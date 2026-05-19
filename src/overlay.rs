@@ -223,11 +223,8 @@ impl OverlayWindow {
         let size = self.window.inner_size();
 
         // DisplayProfile を取得
-        let panel_type = state.panel_type(&self.monitor_id);
-        let profile = crate::display_config::DisplayProfile::from_config(
-            state.display_category(&self.monitor_id),
-            panel_type
-        );
+        let config_ref = state.displays.get(&self.monitor_id).cloned().unwrap_or_default();
+        let profile = config_ref.get_effective_profile();
         let ppi = state.displays.get(&self.monitor_id).map(|c| c.ppi).unwrap_or(110.0);
         let luminance_compress = (0.20f32 / profile.intensity_scale()).clamp(0.10, 0.35);
 

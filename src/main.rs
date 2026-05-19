@@ -11,7 +11,12 @@ mod ai_detection;
 
 use app::AppState;
 use display_config::{MonitorId, DisplayConfig, DisconnectedCache, FilterMode, DisplayCategory};
-use tray::{TrayHandle, MENU_ID_GLOBAL_TOGGLE, MENU_ID_DISPLAY_TOGGLE_PREFIX, MENU_ID_ALPHA_PREFIX, MENU_ID_MODE_PREFIX, MENU_ID_PANEL_PREFIX, MENU_ID_CATEGORY_PREFIX, MENU_ID_INTENSITY_PREFIX, MENU_ID_RESET_RECOMMENDED, MENU_ID_AUTO_START, MENU_ID_AI_DETECTION, MENU_ID_QUIT};
+use tray::{
+    TrayHandle, MENU_ID_GLOBAL_TOGGLE, MENU_ID_DISPLAY_TOGGLE_PREFIX, MENU_ID_ALPHA_PREFIX, 
+    MENU_ID_MODE_PREFIX, MENU_ID_PANEL_PREFIX, MENU_ID_CATEGORY_PREFIX, MENU_ID_INTENSITY_PREFIX, 
+    MENU_ID_OVERRIDE_PERIOD_PREFIX, MENU_ID_OVERRIDE_COVER_PREFIX, MENU_ID_OVERRIDE_SPEED_PREFIX,
+    MENU_ID_RESET_RECOMMENDED, MENU_ID_AUTO_START, MENU_ID_AI_DETECTION, MENU_ID_QUIT
+};
 use ai_detection::{AIDetectionCommand, start_detection_thread};
 use auto_launch::AutoLaunchBuilder;
 use hotkey::HotkeyEvent;
@@ -492,6 +497,66 @@ fn main() {
                                 if let Some(ref t) = tray_handle {
                                     t.rebuild_menu(&state, &overlays);
                                 }
+                            }
+                        }
+                    }
+                }
+            } else if let Some(rest) = id.strip_prefix(MENU_ID_OVERRIDE_PERIOD_PREFIX) {
+                let parts: Vec<&str> = rest.split(':').collect();
+                if parts.len() == 2 {
+                    let id_str = parts[0];
+                    let val_str = parts[1];
+                    if let Some(id_hex) = id_str.strip_prefix("0x") {
+                        if let Ok(id_val) = u64::from_str_radix(id_hex, 16) {
+                            let monitor_id = MonitorId(id_val);
+                            let val = if val_str == "None" { None } else { val_str.parse::<f32>().ok() };
+                            println!("Menu: Set Display {:?} Override Period {:?}", monitor_id, val);
+                            state.set_override_period(&monitor_id, val);
+                            state.save();
+                            overlay::sync_all(&mut overlays, &state, &gpu);
+                            needs_animation = calc_needs_animation(&overlays, &state);
+                            if let Some(ref t) = tray_handle {
+                                t.rebuild_menu(&state, &overlays);
+                            }
+                        }
+                    }
+                }
+            } else if let Some(rest) = id.strip_prefix(MENU_ID_OVERRIDE_COVER_PREFIX) {
+                let parts: Vec<&str> = rest.split(':').collect();
+                if parts.len() == 2 {
+                    let id_str = parts[0];
+                    let val_str = parts[1];
+                    if let Some(id_hex) = id_str.strip_prefix("0x") {
+                        if let Ok(id_val) = u64::from_str_radix(id_hex, 16) {
+                            let monitor_id = MonitorId(id_val);
+                            let val = if val_str == "None" { None } else { val_str.parse::<f32>().ok() };
+                            println!("Menu: Set Display {:?} Override Cover Ratio {:?}", monitor_id, val);
+                            state.set_override_cover_ratio(&monitor_id, val);
+                            state.save();
+                            overlay::sync_all(&mut overlays, &state, &gpu);
+                            needs_animation = calc_needs_animation(&overlays, &state);
+                            if let Some(ref t) = tray_handle {
+                                t.rebuild_menu(&state, &overlays);
+                            }
+                        }
+                    }
+                }
+            } else if let Some(rest) = id.strip_prefix(MENU_ID_OVERRIDE_SPEED_PREFIX) {
+                let parts: Vec<&str> = rest.split(':').collect();
+                if parts.len() == 2 {
+                    let id_str = parts[0];
+                    let val_str = parts[1];
+                    if let Some(id_hex) = id_str.strip_prefix("0x") {
+                        if let Ok(id_val) = u64::from_str_radix(id_hex, 16) {
+                            let monitor_id = MonitorId(id_val);
+                            let val = if val_str == "None" { None } else { val_str.parse::<f32>().ok() };
+                            println!("Menu: Set Display {:?} Override Scroll Speed {:?}", monitor_id, val);
+                            state.set_override_scroll_speed(&monitor_id, val);
+                            state.save();
+                            overlay::sync_all(&mut overlays, &state, &gpu);
+                            needs_animation = calc_needs_animation(&overlays, &state);
+                            if let Some(ref t) = tray_handle {
+                                t.rebuild_menu(&state, &overlays);
                             }
                         }
                     }

@@ -60,6 +60,9 @@ impl AppState {
                 position_key: String::new(),
                 display_category: DisplayCategory::Unknown,
                 ppi: 110.0,
+                override_period_mm: None,
+                override_cover_ratio: None,
+                override_scroll_speed: None,
             },
             auto_start: config.auto_start,
             ai_detection_enabled: config.ai_detection_enabled,
@@ -210,14 +213,35 @@ impl AppState {
         }
     }
 
+    pub fn set_override_period(&mut self, id: &MonitorId, value: Option<f32>) {
+        if let Some(config) = self.displays.get_mut(id) {
+            config.override_period_mm = value;
+        }
+    }
+
+    pub fn set_override_cover_ratio(&mut self, id: &MonitorId, value: Option<f32>) {
+        if let Some(config) = self.displays.get_mut(id) {
+            config.override_cover_ratio = value;
+        }
+    }
+
+    pub fn set_override_scroll_speed(&mut self, id: &MonitorId, value: Option<f32>) {
+        if let Some(config) = self.displays.get_mut(id) {
+            config.override_scroll_speed = value;
+        }
+    }
+
     pub fn reset_to_recommended(&mut self, id: &MonitorId) {
         if let Some(config) = self.displays.get_mut(id) {
+            // Clear manual overrides
+            config.override_period_mm = None;
+            config.override_cover_ratio = None;
+            config.override_scroll_speed = None;
+
             let profile = crate::display_config::DisplayProfile::from_config(config.display_category, config.panel_type);
             config.filter_mode = profile.recommended_filter_mode(config.panel_type);
             config.filter_intensity = profile.recommended_intensity();
             config.alpha = profile.recommended_alpha();
-            // PPI and Category are typically kept as they are detected/set, 
-            // but we ensure intensity/mode are optimal for them.
         }
     }
 

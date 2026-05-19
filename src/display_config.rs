@@ -192,6 +192,14 @@ pub struct DisplayConfig {
     /// 推定 PPI (自動計算)
     #[serde(default = "default_ppi")]
     pub ppi: f32,
+
+    // --- Phase 6: Manual Overrides ---
+    /// 縞1周期の物理幅 [mm] の上書き
+    pub override_period_mm: Option<f32>,
+    /// 遮蔽率 (0.0〜1.0) の上書き
+    pub override_cover_ratio: Option<f32>,
+    /// スクロール速度 [mm/s] の上書き
+    pub override_scroll_speed: Option<f32>,
 }
 
 fn default_display_category() -> DisplayCategory {
@@ -210,6 +218,23 @@ impl DisplayConfig {
     pub fn make_position_key(pos: PhysicalPosition<i32>, size: PhysicalSize<u32>) -> String {
         format!("{}_{}_{}_{}", pos.x, pos.y, size.width, size.height)
     }
+
+    /// 現在の設定（自動判定 + 手動上書き）を反映した Profile を取得する
+    pub fn get_effective_profile(&self) -> DisplayProfile {
+        let mut profile = DisplayProfile::from_config(self.display_category, self.panel_type);
+        
+        if let Some(val) = self.override_period_mm {
+            profile.period_mm = val;
+        }
+        if let Some(val) = self.override_cover_ratio {
+            profile.cover_ratio = val;
+        }
+        if let Some(val) = self.override_scroll_speed {
+            profile.scroll_speed_mm_per_sec = val;
+        }
+        
+        profile
+    }
 }
 
 impl Default for DisplayConfig {
@@ -223,6 +248,9 @@ impl Default for DisplayConfig {
             position_key: String::new(),
             display_category: DisplayCategory::Unknown,
             ppi: 110.0,
+            override_period_mm: None,
+            override_cover_ratio: None,
+            override_scroll_speed: None,
         }
     }
 }

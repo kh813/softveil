@@ -11,6 +11,9 @@ pub const MENU_ID_MODE_PREFIX: &str = "mode:";
 pub const MENU_ID_PANEL_PREFIX: &str = "panel:";
 pub const MENU_ID_CATEGORY_PREFIX: &str = "category:";
 pub const MENU_ID_INTENSITY_PREFIX: &str = "intensity:";
+pub const MENU_ID_OVERRIDE_PERIOD_PREFIX: &str = "ov_period:";
+pub const MENU_ID_OVERRIDE_COVER_PREFIX: &str = "ov_cover:";
+pub const MENU_ID_OVERRIDE_SPEED_PREFIX: &str = "ov_speed:";
 pub const MENU_ID_RESET_RECOMMENDED: &str = "reset_recommended:";
 pub const MENU_ID_AUTO_START: &str = "auto_start";
 pub const MENU_ID_AI_DETECTION: &str = "ai_detection";
@@ -210,6 +213,76 @@ fn build_menu(state: &AppState, overlays: &[OverlayWindow]) -> Menu {
             let _ = alpha_submenu.append(&item);
         }
         let _ = display_menu.append(&alpha_submenu);
+
+        let fine_tune_submenu = Submenu::new("高度な微調整 (フリッカー対策)", true);
+        
+        // 1. 縞の太さ (Period)
+        let period_submenu = Submenu::new("縞の太さ (Period)", true);
+        let periods = [
+            (None, "自動 (推奨)"),
+            (Some(0.8f32), "細い (0.8mm)"),
+            (Some(1.2f32), "標準 (1.2mm)"),
+            (Some(1.8f32), "太い (1.8mm)"),
+            (Some(2.5f32), "極太 (2.5mm)"),
+        ];
+        for (val, label) in periods {
+            let is_checked = config.override_period_mm == val;
+            let item = CheckMenuItem::with_id(
+                format!("{}{}:{:?}", MENU_ID_OVERRIDE_PERIOD_PREFIX, id_str, val),
+                label,
+                true,
+                is_checked,
+                None,
+            );
+            let _ = period_submenu.append(&item);
+        }
+        let _ = fine_tune_submenu.append(&period_submenu);
+
+        // 2. 遮蔽率 (Cover Ratio)
+        let cover_submenu = Submenu::new("遮蔽率 (角度プライバシー)", true);
+        let covers = [
+            (None, "自動 (推奨)"),
+            (Some(0.50f32), "低 (50%)"),
+            (Some(0.70f32), "標準 (70%)"),
+            (Some(0.85f32), "高 (85%)"),
+            (Some(0.95f32), "最高 (95%)"),
+        ];
+        for (val, label) in covers {
+            let is_checked = config.override_cover_ratio == val;
+            let item = CheckMenuItem::with_id(
+                format!("{}{}:{:?}", MENU_ID_OVERRIDE_COVER_PREFIX, id_str, val),
+                label,
+                true,
+                is_checked,
+                None,
+            );
+            let _ = cover_submenu.append(&item);
+        }
+        let _ = fine_tune_submenu.append(&cover_submenu);
+
+        // 3. スクロール速度 (Scroll Speed)
+        let speed_submenu = Submenu::new("スクロール速度 (静止画〜高速)", true);
+        let speeds = [
+            (None, "自動 (推奨)"),
+            (Some(0.0f32), "静止 (0mm/s) - フリッカーなし"),
+            (Some(5.0f32), "極低速 (5mm/s)"),
+            (Some(20.0f32), "低速 (20mm/s)"),
+            (Some(50.0f32), "標準 (50mm/s)"),
+        ];
+        for (val, label) in speeds {
+            let is_checked = config.override_scroll_speed == val;
+            let item = CheckMenuItem::with_id(
+                format!("{}{}:{:?}", MENU_ID_OVERRIDE_SPEED_PREFIX, id_str, val),
+                label,
+                true,
+                is_checked,
+                None,
+            );
+            let _ = speed_submenu.append(&item);
+        }
+        let _ = fine_tune_submenu.append(&speed_submenu);
+
+        let _ = display_menu.append(&fine_tune_submenu);
 
         let _ = display_menu.append(&PredefinedMenuItem::separator());
 
