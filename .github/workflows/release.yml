@@ -52,7 +52,6 @@ jobs:
           chmod +x Softveil.app/Contents/MacOS/softveil
           cp package/macos/Info.plist Softveil.app/Contents/
           cp assets/icon_macos.icns Softveil.app/Contents/Resources/
-          cp assets/face_detector.onnx Softveil.app/Contents/Resources/
           # Ad-hoc sign the binary to satisfy Gatekeeper basics
           codesign --force --deep --sign - Softveil.app
           zip -r ${{ matrix.platform.asset_name }} Softveil.app
@@ -63,7 +62,6 @@ jobs:
         run: |
           mkdir dist
           cp target/${{ matrix.platform.target }}/release/softveil.exe dist/
-          cp assets/face_detector.onnx dist/
           compress-archive -Path dist/* -DestinationPath ${{ matrix.platform.asset_name }}
         shell: pwsh
 
