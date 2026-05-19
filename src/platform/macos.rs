@@ -84,7 +84,9 @@ pub fn apply_overlay_settings(window: &Window, alpha: u8) {
 }
 
 pub fn register_theme_change_observer(tx: mpsc::Sender<DisplayChangeEvent>) -> Retained<NSObject> {
-    let center = NSDistributedNotificationCenter::defaultCenter();
+    let center: Retained<NSDistributedNotificationCenter> = unsafe {
+        msg_send![objc2::class!(NSDistributedNotificationCenter), defaultCenter]
+    };
     let notification_name = NSString::from_str("AppleInterfaceThemeChangedNotification");
     
     let block = StackBlock::new(move |_notif: &NSNotification| {
@@ -97,7 +99,7 @@ pub fn register_theme_change_observer(tx: mpsc::Sender<DisplayChangeEvent>) -> R
             &*center,
             addObserverForName: &*notification_name,
             object: None::<&NSObject>,
-            suspensionBehavior: 0isize, // NSNotificationSuspensionBehaviorDeliverImmediately
+            queue: None::<&NSObject>,
             usingBlock: &*block
         ]
     };
@@ -197,7 +199,9 @@ pub fn register_hotplug_observer(tx: mpsc::Sender<DisplayChangeEvent>) -> Hotplu
 impl Drop for HotplugGuard {
     fn drop(&mut self) {
         let center = NSNotificationCenter::defaultCenter();
-        let dist_center = NSDistributedNotificationCenter::defaultCenter();
+        let dist_center: Retained<NSDistributedNotificationCenter> = unsafe {
+            msg_send![objc2::class!(NSDistributedNotificationCenter), defaultCenter]
+        };
         unsafe {
             let _: () = msg_send![&*center, removeObserver: &*self.token];
             let _: () = msg_send![&*dist_center, removeObserver: &*self.theme_token];
