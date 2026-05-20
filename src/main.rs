@@ -34,6 +34,10 @@ enum UserEvent {
 
 fn main() {
     println!("Starting Softveil...");
+    
+    #[cfg(target_os = "windows")]
+    platform::windows::enable_dpi_awareness();
+
     let _guard = match single_instance::acquire() {
         Ok(guard) => {
             println!("Single instance lock acquired.");
@@ -188,11 +192,10 @@ fn main() {
 
     let menu_channel = MenuEvent::receiver();
 
-    println!("Softveil Phase 1 running. Waiting for events...");
-
-    let mut needs_animation = calc_needs_animation(&overlays, &state);
+    let mut last_frame_time = std::time::Instant::now();
 
     event_loop.run(move |event, event_loop_target, control_flow| {
+        let mut needs_animation = calc_needs_animation(&overlays, &state);
         *control_flow = if needs_animation {
             ControlFlow::Poll
         } else {
@@ -202,10 +205,16 @@ fn main() {
         match event {
             Event::MainEventsCleared
                 if needs_animation => {
-                    for overlay in overlays.iter_mut() {
-                        if state.is_visible(&overlay.monitor_id) {
-                            let alpha = state.effective_alpha_u8(&overlay.monitor_id);
-                            let _ = overlay.draw(&gpu, &state, alpha);
+                    let now = std::time::Instant::now();
+                    // 16ms (60fps) 以上経過していたら描画する
+                    // モードによっては 33ms (30fps) でも良いが、まずは一律 60fps 上限とする
+                    if now.duration_since(last_frame_time) >= std::time::Duration::from_millis(16) {
+                        last_frame_time = now;
+                        for overlay in overlays.iter_mut() {
+                            if state.is_visible(&overlay.monitor_id) {
+                                let alpha = state.effective_alpha_u8(&overlay.monitor_id);
+                                let _ = overlay.draw(&gpu, &state, alpha);
+                            }
                         }
                     }
                 }
@@ -619,11 +628,21 @@ fn main() {
 
 fn calc_needs_animation(overlays: &[overlay::OverlayWindow], state: &AppState) -> bool {
     overlays.iter().any(|o| {
+        if !state.is_visible(&o.monitor_id) {
+            return false;
+        }
         let mode = state.filter_mode(&o.monitor_id);
-        matches!(mode,
-            FilterMode::VerticalLouver |
-            FilterMode::HighIntensitySPD |
-            FilterMode::AIOcrInterference
-        ) && state.is_visible(&o.monitor_id)
+        if matches!(mode, FilterMode::BlackLayer) {
+            return false;
+        }
+
+        // DisplayConfig から実効プロファイルを取得してアニメーションが必要か判定
+        if let Some(config) = state.displays.get(&o.monitor_id) {
+            let profile = config.get_effective_profile();
+            // スクロール速度があるか、位相反転（FastVibration）が有効ならアニメーションが必要
+            profile.scroll_speed_mm_per_sec.abs() > 0.001 || profile.phase_flip_hz > 0.001
+        } else {
+            false
+        }
     })
 }

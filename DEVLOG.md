@@ -25,6 +25,33 @@
 
 <!-- 以下に実装ログを追記していく -->
 
+## 2026-05-20
+
+### Phase 7: Windows 最適化とリファクタリング (Phase 6+ Improvement)
+- **ネイティブ API への移行 (osascript/PowerShell 廃止)**:
+    - **Windows WMI 直接制御**: 輝度取得・設定において PowerShell 呼び出しを完全に廃止し、`windows` クレートを用いた WMI/COM 直接アクセスへ移行。実行速度の向上とセキュリティリスク（スクリプトインジェクション）の排除。
+    - **Windows ブロードキャスト実装**: レジストリによるテーマ変更後、`SendMessageTimeout` を用いて `WM_SETTINGCHANGE` をブロードキャストするよう実装。タスクバー等の他アプリへ変更が即時反映されるようになった。
+    - **macOS Native API 統合**: `osascript` コマンドを廃止。輝度制御には `IOKit` (`IODisplaySetFloatParameter`)、アラート表示には `NSAlert`、ダークモード判定には `NSUserDefaults` を使用。設定変更には `NSAppleScript` をインメモリ実行することで、プロセス起動オーバーヘッドを削減。
+- **シェーダー演算の最適化**:
+    - **CPU 事前計算**: `VerticalLouver` モードの斜め成分計算で使用していた `cos`/`sin` 演算を CPU 側（Rust）に移動。毎フレーム、各ピクセルで実行されていた重い trig 関数を uniforms 経由の定数参照に置き換え、GPU 負荷をさらに低減。
+- **Windows 視覚的品質の改善**:
+    - **FHD ノート最適化**: Windows FHD (150-170 PPI) 向けに `period_mm` を 0.20mm に引き下げ。格子の目を微細化することで、スクリーンセーバーのような「格子感」を排除し、均一なベールのような視覚効果を達成。
+    - **DPI Awareness 統合**: `SetProcessDpiAwarenessContext` を呼び出し、Per-Monitor DPI Aware v2 を有効化。これにより OS による強制スケーリングを回避し、物理ピクセルに基づいた正確なフィルタ描画を実現。
+    - **格子状パターンの制御**: `bidirectional` フラグを導入。低 PPI 環境では視認されやすい千鳥格子を避け、デフォルトで縦縞（Vertical-only）を適用するよう修正。
+- **パフォーマンスとシステム負荷の最適化**:
+    - **フレームリミッター**: イベントループに 60fps 上限のフレームリミッターを実装。無制限なループによる GPU 負荷を抑制。
+    - **動的描画停止**: 静止ディザ（スクロール速度 0）やフィルター OFF 時には `ControlFlow::Wait` に切り替え、GPU レンダリングを完全に停止するロジックを実装。
+    - **Windows GPU バックエンド**: バックエンドを DX12/DX11 に優先順位付け。Intel 内蔵 GPU 等での安定性と効率を向上。
+- **システム統合と堅牢性の向上**:
+    - **PowerShell ウィンドウの隠蔽**: 輝度操作等の PowerShell 呼び出し時に `CREATE_NO_WINDOW` フラグと `-WindowStyle Hidden` を併用し、黒いコンソール画面が瞬間表示される問題を解決。
+    - **アライメント検証**: `Uniforms` 構造体のサイズ (80bytes) とアライメント (16-byte) をコンパイル時に検証するアサーションを追加。
+    - **設定の下位互換性**: `DisplayConfig` の全フィールドに `#[serde(default)]` を付与。将来のフィールド追加時にも既存の設定ファイルが読み込めるよう耐性を強化。
+
+### 既知の問題 / 持ち越し
+- **内蔵ディスプレイ判定の更なる強化**: `SetupAPI` を用いた ACPI バス接続判定への移行を検討。
+- **crabgrab の遅延初期化**: 将来の Semantic Privacy 実装に向け、依存関係のロードタイミングを最適化予定。
+
+
 ## 2026-05-18
 
 ### Phase 6: 統合型ステルス・スイッチの実装 (v0.1.16)

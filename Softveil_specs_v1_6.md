@@ -73,7 +73,9 @@
 
 1.  **階層化パラメータ・スタック**:
     *   **Level 1: System Default**: プログラム定数。
-    *   **Level 2: Profile Recommended**: 画面カテゴリ（PPI）とパネル種別から自動計算。
+    *   **Level 2: Profile Recommended**: 画面カテゴリ（PPI, scale_factor）とパネル種別から自動計算。
+        *   **Windows FHD (150-170 PPI)**: `period_mm = 0.20`, `scroll_speed = 0.0` (静止), `bidirectional = false` (縦縞) を推奨。
+        *   **macOS Retina (220-250 PPI)**: `period_mm = 0.40`, `scroll_speed = 5.0`, `bidirectional = true` (格子) を推奨。
     *   **Level 3: Manual Override**: ユーザーによる「高度な微調整」メニューからの上書き設定。
 2.  **微調整可能項目**:
     *   `period_mm`: 縞の太さ。LCDの干渉ノイズ（格子模様）を抑えるための主要な手段。
@@ -138,7 +140,11 @@ tract-onnx = "0.21"
 ### 4.5 描画アーキテクチャ
 
 - **GPU パイプライン**: `wgpu` を使用したピクセルパーフェクトなシェーダー実行。
-- **動的イベントループ**: アニメーション有効時は `ControlFlow::Poll` に切り替え、`MainEventsCleared` で 60fps+ の描画を駆動する。
+- **VSync 同期**: `PresentMode::Fifo` をデフォルトとし、ディスプレイのリフレッシュレートに同期した安定した描画を行う。
+- **動的イベントループ**: 
+    - アニメーション有効時は `ControlFlow::Poll` に切り替え、`MainEventsCleared` で描画を駆動する。
+    - フィルター OFF または静止ディザ時は `ControlFlow::Wait` に移行し、不要な GPU 負荷を排除する。
+    - 省電力 GPU 環境向けに、モードに応じてフレームレート上限（30/60fps）を適用する。
 - **Alpha ブレンディング**: `discard` を排除し、すべてのピクセルで Alpha 値を持つ `vec4` を返すことで、OS レベルの透過合成と連動する。
 
 ---

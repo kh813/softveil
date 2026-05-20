@@ -72,6 +72,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let hatch_angle = uniforms.v3.w;
 
     let is_light_mode = uniforms.v4.x > 0.5;
+    let cos_a = uniforms.v4.y;
+    let sin_a = uniforms.v4.z;
 
     let x = in.tex_coords.x * width;
     let y = in.tex_coords.y * height;
@@ -88,22 +90,25 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let scroll_speed = scroll_speed_px;
         let burn_in_offset = select(0.0, t * 0.2, panel_type == 1u);
 
-        // 1. 水平縞 (上下方向)
-        let scrolled_y = ((y + t * scroll_speed) % period + period) % period;
-        let alpha_h = calc_louver(scrolled_y, stripe_width, edge_px, alpha, is_light_mode);
-
-        // 2. 垂直縞 (左右方向)
+        // 1. 垂直縞 (左右方向) - 常に描画
         let scrolled_x = ((x + t * scroll_speed * 0.7 + burn_in_offset) % period + period) % period;
-        let alpha_v = calc_louver(scrolled_x, stripe_width, edge_px, alpha, is_light_mode);
+        var alpha_out = calc_louver(scrolled_x, stripe_width, edge_px, alpha, is_light_mode);
 
-        // 3. 斜め成分
-        let cos_a = cos(hatch_angle);
-        let sin_a = sin(hatch_angle);
-        let rotated = (x * cos_a + y * sin_a);
-        let scrolled_d = ((rotated + t * scroll_speed * 0.5) % period + period) % period;
-        let alpha_d = calc_louver(scrolled_d, stripe_width, edge_px, alpha, is_light_mode);
+        if (bidirectional == 1u) {
+            // 2. 水平縞 (上下方向)
+            let scrolled_y = ((y + t * scroll_speed) % period + period) % period;
+            let alpha_h = calc_louver(scrolled_y, stripe_width, edge_px, alpha, is_light_mode);
 
-        let alpha_out = max(max(alpha_h, alpha_v), alpha_d);
+            // 3. 斜め成分
+            let cos_a = cos(hatch_angle);
+            let sin_a = sin(hatch_angle);
+            let rotated = (x * cos_a + y * sin_a);
+            let scrolled_d = ((rotated + t * scroll_speed * 0.5) % period + period) % period;
+            let alpha_d = calc_louver(scrolled_d, stripe_width, edge_px, alpha, is_light_mode);
+
+            alpha_out = max(max(alpha_out, alpha_h), alpha_d);
+        }
+        
         return vec4<f32>(0.0, 0.0, 0.0, alpha_out);
 
     } else if (mode == 2u) {
@@ -158,13 +163,18 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             
             // Horizontal and Vertical louver composite
             let v_stripe = calc_louver(((x + sx) % p + p) % p, stripe_w, edge, alpha, is_light_mode);
-            let h_stripe = calc_louver(((y + sy) % p + p) % p, stripe_w, edge, alpha, is_light_mode);
+            var final_a = v_stripe;
+            
+            if (bidirectional == 1u) {
+                let h_stripe = calc_louver(((y + sy) % p + p) % p, stripe_w, edge, alpha, is_light_mode);
+                final_a = max(final_a, h_stripe);
+            }
             
             // Add a high-frequency distraction layer to break up OCR
             let n = stable_noise(vec2<f32>(x, y) + floor(t * 12.0));
             let noise = select(0.0, alpha * 0.2, n > 0.96);
             
-            let final_a = max(max(v_stripe, h_stripe), noise);
+            final_a = max(final_a, noise);
             return vec4<f32>(0.0, 0.0, 0.0, final_a);
         }
     } else if (mode == 4u) {

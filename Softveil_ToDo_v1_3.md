@@ -181,6 +181,32 @@
     - [x] モード切替時の滑らかな輝度遷移（フェード）演出の実装 ✅
 
 
+## Phase 7：Windows 最適化とリファクタリング (Phase 6+ Improvement) 🧪
+
+**目的:** Windows 環境での視覚的品質の向上、GPU 負荷の低減、およびコードの堅牢性強化。
+
+- [ ] **Windows 格子サイズと視覚的品質の改善** 🪟
+    - [x] `scale_factor` (DPR) をシェーダーの物理パラメータ計算に正しく反映 ✅
+    - [x] Windows FHD ノート向けの `period_mm` デフォルト値を 0.20mm に調整 ✅
+    - [x] Windows FHD ノートのデフォルトスクロール速度を 0.0mm/s（静止）に変更 ✅
+    - [x] Windows FHD ノートでは `bidirectional` (格子状) をデフォルト OFF（縦縞のみ）に設定 ✅
+- [ ] **GPU 負荷の低減 (Intel N200 等の省電力 GPU 対応)** 🔁
+    - [x] wgpu サーフェス設定を `PresentMode::Fifo` (VSync 有効) に変更 ✅
+    - [x] フィルター OFF かつアニメーション不要時に `ControlFlow::Wait` へ移行し描画を完全停止 ✅
+    - [x] フレームリミッターの実装 (静止/低速時は 30fps 上限) ✅
+    - [x] シェーダー内の重い演算（三角関数等）の最適化・近似 ✅
+    - [x] Windows での wgpu バックエンドを DX11/DX12 に優先順位付け ✅
+- [ ] **Windows システム統合の高度化** 🪟
+    - [x] PowerShell 呼び出し時のコンソール瞬間表示の抑止 (`CREATE_NO_WINDOW`) ✅
+    - [x] PowerShell 依存を排除し、`windows-rs` による WMI/COM 直接呼び出しへの移行 ✅
+    - [x] レジストリ変更後の設定反映を `SendMessageTimeout` によるブロードキャストに変更 ✅
+    - [x] マニフェストによる Per-Monitor DPI Aware v2 の明示的な宣言 ✅
+    - [ ] 内蔵ディスプレイ判定に `DEVPKEY_Device_LocationInfo` (ACPIバス) 等のより確実な手法を導入 🚧
+- [ ] **コードの堅牢性と保守性の向上** 🔁
+    - [x] `Uniforms` 構造体のアライメントとサイズのコンパイル時検証 (`static_assertions`) ✅
+    - [x] `confy` (serde) の `#[serde(default)]` 付与による設定ファイルの下位互換性確保 ✅
+    - [ ] `crabgrab` 等の重い依存関係の遅延初期化（Lazy Init） 🚧
+    - [x] macOS: `osascript` 廃止完了（Native API & NSAppleScript 移行） ✅
 
 
 ---

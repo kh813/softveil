@@ -43,6 +43,8 @@ pub struct DisplayProfile {
     pub scroll_speed_mm_per_sec: f32,
     /// 位相反転周波数 [Hz]。FastVibration モードで使用。
     pub phase_flip_hz: f32,
+    /// 二方向（格子状）にするかどうか。false の場合は一方向（縦縞）。
+    pub bidirectional: bool,
 }
 
 impl DisplayProfile {
@@ -52,42 +54,47 @@ impl DisplayProfile {
             DisplayCategory::NotebookFhd => Self {
                 category,
                 ppi: 157.0,
-                period_mm: 1.5,      // 1.0から1.5へ（少し太くして干渉を抑える）
-                cover_ratio: 0.82,   // 0.70から0.82へ（遮蔽率アップ）
-                scroll_speed_mm_per_sec: 15.0, // 45.0から15.0へ（フリッカーを抑える低速スクロール）
+                period_mm: 0.20,      // 1.5から0.20へ（格子を細かくしてベール化）
+                cover_ratio: 0.55,   // 0.82から0.55へ（細い縞に合わせて調整）
+                scroll_speed_mm_per_sec: 0.0, // 15.0から0.0へ（静止させてフリッカーとGPU負荷を低減）
                 phase_flip_hz: 0.0,
+                bidirectional: false, // Windows FHDでは格子より縦縞の方が目立たない
             },
             DisplayCategory::NotebookHiDpi => Self {
                 category,
                 ppi: 220.0,
-                period_mm: 1.2,      // 0.8から1.2へ
-                cover_ratio: 0.85,   // 0.75から0.85へ
-                scroll_speed_mm_per_sec: 20.0, // 50.0から20.0へ
+                period_mm: 0.40,      // 1.2から0.40へ
+                cover_ratio: 0.50,   // 0.85から0.50へ
+                scroll_speed_mm_per_sec: 5.0, // 20.0から5.0へ
                 phase_flip_hz: 0.0,
+                bidirectional: true,
             },
             DisplayCategory::ExternalLarge4K => Self {
                 category,
                 ppi: 163.0,
-                period_mm: 1.5,      // 離れて見るので太く
-                cover_ratio: 0.65,
-                scroll_speed_mm_per_sec: 70.0,
+                period_mm: 0.60,
+                cover_ratio: 0.45,
+                scroll_speed_mm_per_sec: 10.0,
                 phase_flip_hz: 25.0,
+                bidirectional: true,
             },
             DisplayCategory::ExternalGeneral => Self {
                 category,
                 ppi: 92.0,
-                period_mm: 1.2,
-                cover_ratio: 0.68,
-                scroll_speed_mm_per_sec: 55.0,
+                period_mm: 0.40,
+                cover_ratio: 0.45,
+                scroll_speed_mm_per_sec: 0.0,
                 phase_flip_hz: 28.0,
+                bidirectional: false,
             },
             DisplayCategory::Unknown => Self {
                 category,
                 ppi: 110.0,
-                period_mm: 1.2,
-                cover_ratio: 0.65,
-                scroll_speed_mm_per_sec: 50.0,
+                period_mm: 0.50,
+                cover_ratio: 0.50,
+                scroll_speed_mm_per_sec: 5.0,
                 phase_flip_hz: 30.0,
+                bidirectional: true,
             },
         };
 
@@ -179,10 +186,15 @@ impl std::fmt::Display for MonitorId {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DisplayConfig {
+    #[serde(default = "default_enabled")]
     pub enabled: bool,
+    #[serde(default = "default_alpha")]
     pub alpha: f32,
+    #[serde(default = "default_filter_mode")]
     pub filter_mode: FilterMode,
+    #[serde(default = "default_panel_type")]
     pub panel_type: PanelType,
+    #[serde(default = "default_intensity")]
     pub filter_intensity: f32, // Phase 5: フィルター強度 (0.5 - 2.0)
     pub position_key: String,
 
@@ -195,12 +207,21 @@ pub struct DisplayConfig {
 
     // --- Phase 6: Manual Overrides ---
     /// 縞1周期の物理幅 [mm] の上書き
+    #[serde(default)]
     pub override_period_mm: Option<f32>,
     /// 遮蔽率 (0.0〜1.0) の上書き
+    #[serde(default)]
     pub override_cover_ratio: Option<f32>,
     /// スクロール速度 [mm/s] の上書き
+    #[serde(default)]
     pub override_scroll_speed: Option<f32>,
 }
+
+fn default_enabled() -> bool { true }
+fn default_alpha() -> f32 { 0.3 }
+fn default_filter_mode() -> FilterMode { FilterMode::VerticalLouver }
+fn default_panel_type() -> PanelType { PanelType::Unknown }
+fn default_intensity() -> f32 { 0.5 }
 
 fn default_display_category() -> DisplayCategory {
     DisplayCategory::Unknown

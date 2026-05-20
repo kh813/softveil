@@ -16,6 +16,10 @@ pub struct GpuContext {
 impl GpuContext {
     pub async fn new() -> Option<Self> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            // Windows では DX12/DX11 を優先し、Vulkan を避けることで安定性と負荷を改善する
+            #[cfg(target_os = "windows")]
+            backends: wgpu::Backends::DX12,
+            #[cfg(not(target_os = "windows"))]
             backends: wgpu::Backends::all(),
             ..Default::default()
         });
@@ -44,15 +48,21 @@ impl GpuContext {
     }
 }
 
-#[repr(C)]
-#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+#[repr(C, align(16))]
+#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct Uniforms {
     v0: [f32; 4], // time, mode, alpha, width
     v1: [f32; 4], // height, panel_type, refresh_rate, intensity
     v2: [f32; 4], // bidirectional, period_px, scroll_speed_px, cover_ratio
     v3: [f32; 4], // phase_flip_hz, grid_period_px, luminance_compress, hatch_angle
-    v4: [f32; 4], // padding
+    v4: [f32; 4], // is_light_mode, cos_hatch, sin_hatch, padding
 }
+
+
+// Ensure Uniforms is exactly 80 bytes and 16-byte aligned for WGSL
+const _: () = assert!(std::mem::size_of::<Uniforms>() == 80);
+const _: () = assert!(std::mem::align_of::<Uniforms>() >= 16);
+
 
 pub struct OverlayWindow {
     pub monitor_id: MonitorId,
@@ -238,6 +248,8 @@ impl OverlayWindow {
 
         let effective_mode = mode_val;
 
+        let hatch_angle = std::f32::consts::FRAC_PI_4;
+
         let uniforms = Uniforms {
             v0: [
                 self.start_time.elapsed().as_secs_f32(),
@@ -257,12 +269,7 @@ impl OverlayWindow {
                 state.filter_intensity(&self.monitor_id),
             ],
             v2: [
-                match state.panel_type(&self.monitor_id) {
-                    crate::display_config::PanelType::Oled => 1.0,
-                    crate::display_config::PanelType::LcdIps => 0.0,
-                    crate::display_config::PanelType::LcdTn => 0.0,
-                    crate::display_config::PanelType::Unknown => 1.0,
-                },
+                if profile.bidirectional { 1.0 } else { 0.0 },
                 profile.period_px(ppi),
                 profile.scroll_speed_px(ppi),
                 profile.cover_ratio,
@@ -271,11 +278,13 @@ impl OverlayWindow {
                 profile.phase_flip_hz,
                 profile.period_px(ppi),
                 luminance_compress,
-                std::f32::consts::FRAC_PI_4,
+                hatch_angle,
             ],
             v4: [
                 if platform::is_dark_mode() { 0.0 } else { 1.0 }, // Light Mode flag
-                0.0, 0.0, 0.0
+                hatch_angle.cos(),
+                hatch_angle.sin(),
+                0.0
             ],
         };
         gpu.queue.write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[uniforms]));

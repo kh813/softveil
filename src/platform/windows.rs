@@ -8,6 +8,12 @@ use windows_sys::Win32::Graphics::Gdi::*;
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::Registry::*;
 
+use windows::{
+    core::*,
+    Win32::System::Wmi::*,
+    Win32::System::Com::*,
+};
+
 use std::sync::mpsc;
 use std::thread;
 use std::ptr::null_mut;
@@ -15,6 +21,12 @@ use crate::platform::DisplayChangeEvent;
 
 pub fn get_monitor_id(monitor: &MonitorHandle) -> MonitorId {
     MonitorId(monitor.hmonitor() as u64)
+}
+
+fn init_com() {
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+    }
 }
 
 /// 内蔵ディスプレイ判定
@@ -206,7 +218,14 @@ pub fn apply_overlay_settings(window: &Window, alpha: u8) {
     }
 }
 
-use std::process::Command;
+/// Windows での DPI Awareness を有効にする
+pub fn enable_dpi_awareness() {
+    unsafe {
+        use windows_sys::Win32::UI::HiDpi::*;
+        // SetProcessDpiAwarenessContext (Windows 10 1703+)
+        SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+    }
+}
 
 pub fn is_dark_mode() -> bool {
     unsafe {
@@ -243,27 +262,111 @@ pub fn set_dark_mode(enabled: bool) {
             RegSetValueExW(hkey, value_name.as_ptr(), 0, REG_DWORD, &data as *const _ as *const _, 4);
             RegSetValueExW(hkey, value_name_system.as_ptr(), 0, REG_DWORD, &data as *const _ as *const _, 4);
             RegCloseKey(hkey);
+            
+            // Broadcast setting change so other apps (and the taskbar) update immediately
+            let lparam = "ImmersiveColorSet\0".encode_utf16().collect::<Vec<u16>>();
+            SendMessageTimeoutW(
+                HWND_BROADCAST as HWND,
+                WM_SETTINGCHANGE,
+                0,
+                lparam.as_ptr() as LPARAM,
+                SMTO_ABORTIFHUNG,
+                2000,
+                std::ptr::null_mut(),
+            );
         }
     }
 }
 
 pub fn get_brightness() -> f32 {
-    let output = Command::new("powershell")
-        .args(["-Command", "Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightness | Select-Object -ExpandProperty CurrentBrightness"])
-        .output();
-    if let Ok(output) = output {
-        let s = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if let Ok(b) = s.parse::<f32>() {
-            return b / 100.0;
-        }
+    init_com();
+    match get_brightness_wmi() {
+        Ok(b) => b,
+        Err(_) => 0.5,
     }
-    0.5
+}
+
+fn get_brightness_wmi() -> windows::core::Result<f32> {
+    unsafe {
+        let locator: IWbemLocator = CoCreateInstance(&WbemLocator, None, CLSCTX_INPROC_SERVER)?;
+        let services = locator.ConnectServer(&BSTR::from("root\\WMI"), None, None, None, 0, None, None)?;
+        
+        let query = BSTR::from("SELECT CurrentBrightness FROM WmiMonitorBrightness");
+        let enumerator = services.ExecQuery(&BSTR::from("WQL"), &query, WBEM_FLAG_FORWARD_ONLY | WBEM_FLAG_RETURN_IMMEDIATELY, None)?;
+        
+        let mut brightness = 0.5f32;
+        let mut objects = [None; 1];
+        let mut returned = 0;
+        enumerator.Next(WBEM_INFINITE, &mut objects, &mut returned).ok()?;
+        
+        if returned > 0 {
+            if let Some(obj) = &objects[0] {
+                let mut variant = windows::core::VARIANT::default();
+                obj.Get(windows::core::w!("CurrentBrightness"), 0, &mut variant, None, None)?;
+                // Use windows_sys raw variant for layout access
+                let raw: &windows_sys::Win32::System::Variant::VARIANT = std::mem::transmute(&variant);
+                brightness = raw.Anonymous.Anonymous.Anonymous.uiVal as f32 / 100.0;
+            }
+        }
+        Ok(brightness)
+    }
 }
 
 pub fn set_brightness(level: f32) {
-    let b = (level * 100.0).clamp(0.0, 100.0) as i32;
-    let script = format!("(Get-CimInstance -Namespace root/WMI -ClassName WmiMonitorBrightnessMethods).WmiSetBrightness(0, {})", b);
-    let _ = Command::new("powershell").args(["-Command", &script]).status();
+    init_com();
+    let _ = set_brightness_wmi(level);
+}
+
+fn set_brightness_wmi(level: f32) -> windows::core::Result<()> {
+    unsafe {
+        let locator: IWbemLocator = CoCreateInstance(&WbemLocator, None, CLSCTX_INPROC_SERVER)?;
+        let services = locator.ConnectServer(&BSTR::from("root\\WMI"), None, None, None, 0, None, None)?;
+        
+        let b = (level * 100.0).clamp(0.0, 100.0) as u8;
+        
+        let query = BSTR::from("SELECT * FROM WmiMonitorBrightnessMethods");
+        let enumerator = services.ExecQuery(&BSTR::from("WQL"), &query, WBEM_FLAG_FORWARD_ONLY | WBEM_FLAG_RETURN_IMMEDIATELY, None)?;
+        
+        let mut objects = [None; 1];
+        let mut returned = 0;
+        while enumerator.Next(WBEM_INFINITE, &mut objects, &mut returned).is_ok() && returned > 0 {
+            if let Some(obj) = &objects[0] {
+                let mut path_variant = windows::core::VARIANT::default();
+                obj.Get(windows::core::w!("__PATH"), 0, &mut path_variant, None, None)?;
+                let raw_path: &windows_sys::Win32::System::Variant::VARIANT = std::mem::transmute(&path_variant);
+                let path_ptr = raw_path.Anonymous.Anonymous.Anonymous.bstrVal;
+                
+                let class_name = BSTR::from("WmiMonitorBrightnessMethods");
+                let method_name = BSTR::from("WmiSetBrightness");
+                let mut class = None;
+                services.GetObject(&class_name, WBEM_GENERIC_FLAG_TYPE(0), None, Some(&mut class), None)?;
+                
+                let in_params_def = class.as_ref().unwrap();
+                let mut in_params_obj: Option<IWbemClassObject> = None;
+                in_params_def.GetMethod(&method_name, 0, &mut in_params_obj, std::ptr::null_mut())?;
+                
+                let in_params = in_params_obj.as_ref().unwrap().SpawnInstance(0)?;
+                
+                let mut var_timeout = windows::core::VARIANT::default();
+                let raw_timeout: &mut windows_sys::Win32::System::Variant::VARIANT = std::mem::transmute(&mut var_timeout);
+                raw_timeout.Anonymous.Anonymous.vt = windows_sys::Win32::System::Variant::VT_UI4;
+                raw_timeout.Anonymous.Anonymous.Anonymous.ulVal = 0;
+                in_params.Put(windows::core::w!("Timeout"), 0, &var_timeout, 0)?;
+                
+                let mut var_brightness = windows::core::VARIANT::default();
+                let raw_brightness: &mut windows_sys::Win32::System::Variant::VARIANT = std::mem::transmute(&mut var_brightness);
+                raw_brightness.Anonymous.Anonymous.vt = windows_sys::Win32::System::Variant::VT_UI1;
+                raw_brightness.Anonymous.Anonymous.Anonymous.bVal = b;
+                in_params.Put(windows::core::w!("Brightness"), 0, &var_brightness, 0)?;
+                
+                let path = BSTR::from_raw(path_ptr);
+                let res = services.ExecMethod(&path, &method_name, WBEM_GENERIC_FLAG_TYPE(0), None, &in_params, None, None);
+                std::mem::forget(path); // VARIANT owns the underlying BSTR
+                res?;
+            }
+        }
+        Ok(())
+    }
 }
 
 pub fn show_error_dialog(title: &str, message: &str) {

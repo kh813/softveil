@@ -4,16 +4,40 @@ use tao::platform::macos::MonitorHandleExtMacOS;
 use tao::platform::macos::WindowExtMacOS;
 use crate::display_config::{MonitorId, PanelType};
 use crate::platform::DisplayChangeEvent;
-use objc2_app_kit::{NSWindow, NSWindowCollectionBehavior, NSColor, NSScreen};
-use objc2::{msg_send, rc::Retained, MainThreadMarker};
+use objc2_app_kit::{NSWindow, NSWindowCollectionBehavior, NSColor, NSScreen, NSAlert};
+use objc2_foundation::{NSNotificationCenter, NSDistributedNotificationCenter, NSString, NSObject, NSNotification, NSUserDefaults, NSAppleScript};
+use objc2::{msg_send, rc::Retained, MainThreadMarker, AnyThread};
+use block2::StackBlock;
 use std::sync::{Mutex, mpsc};
 use std::collections::HashMap;
 use std::process::Command;
 use serde_json::Value;
-use objc2_foundation::{NSNotificationCenter, NSDistributedNotificationCenter, NSString, NSObject, NSNotification};
-use block2::StackBlock;
 use std::thread;
 use std::time::Duration;
+
+#[link(name = "IOKit", kind = "framework")]
+extern "C" {
+    fn IOServiceGetMatchingServices(
+        masterPort: u32,
+        matching: *mut std::ffi::c_void,
+        existing: *mut u32,
+    ) -> i32;
+    fn IOServiceMatching(name: *const i8) -> *mut std::ffi::c_void;
+    fn IOIteratorNext(iterator: u32) -> u32;
+    fn IODisplayGetFloatParameter(
+        service: u32,
+        options: u32,
+        parameterName: *const NSString,
+        value: *mut f32,
+    ) -> i32;
+    fn IODisplaySetFloatParameter(
+        service: u32,
+        options: u32,
+        parameterName: *const NSString,
+        value: f32,
+    ) -> i32;
+    fn IOObjectRelease(obj: u32) -> i32;
+}
 
 static MONITOR_NAME_CACHE: Mutex<Option<HashMap<u64, String>>> = Mutex::new(None);
 
@@ -281,48 +305,65 @@ pub fn has_screen_capture_access() -> bool {
 }
 
 pub fn is_dark_mode() -> bool {
-    let output = Command::new("defaults")
-        .args(["read", "-g", "AppleInterfaceStyle"])
-        .output();
-    if let Ok(output) = output {
-        String::from_utf8_lossy(&output.stdout).trim() == "Dark"
-    } else {
-        false
-    }
+    let defaults = NSUserDefaults::standardUserDefaults();
+    let key = NSString::from_str("AppleInterfaceStyle");
+    let style = defaults.stringForKey(&key);
+    style.map(|s| s.to_string() == "Dark").unwrap_or(false)
 }
 
 pub fn set_dark_mode(enabled: bool) {
-    let script = format!(
+    let source = format!(
         "tell application \"System Events\" to tell appearance preferences to set dark mode to {}",
         enabled
     );
-    let _ = Command::new("osascript").args(["-e", &script]).status();
+    unsafe {
+        if let Some(script) = NSAppleScript::initWithSource(NSAppleScript::alloc(), &NSString::from_str(&source)) {
+            let _ = script.executeAndReturnError(None);
+        }
+    }
 }
 
 pub fn get_brightness() -> f32 {
-    // macOS does not have a simple public API for this. 
-    // Usually requires IOKit or private CoreDisplay.
-    // For now, return a default value or try to use a common tool if present.
-    0.5 
+    let mut brightness = 0.5f32;
+    unsafe {
+        let matching = IOServiceMatching("IODisplayConnect\0".as_ptr() as *const i8);
+        let mut iterator = 0u32;
+        let kr = IOServiceGetMatchingServices(0, matching, &mut iterator);
+        if kr == 0 {
+            let mut service = IOIteratorNext(iterator);
+            while service != 0 {
+                let key = NSString::from_str("brightness");
+                let mut b = 0.0f32;
+                if IODisplayGetFloatParameter(service, 0, &*key, &mut b) == 0 {
+                    brightness = b;
+                    IOObjectRelease(service);
+                    break;
+                }
+                IOObjectRelease(service);
+                service = IOIteratorNext(iterator);
+            }
+            IOObjectRelease(iterator);
+        }
+    }
+    brightness
 }
 
 pub fn set_brightness(level: f32) {
-    // level: 0.0 to 1.0
-    // Try using osascript to control brightness via UI if possible, 
-    // but it is very version dependent.
-    // A better way is to use IOKit, but that requires more complex setup.
-    let script = format!(
-        "tell application \"System Events\" to repeat with i from 1 to 16
-            key code 144 -- brightness up
-        end repeat
-        repeat with i from 1 to {}
-            key code 145 -- brightness down
-        end repeat",
-        ((1.0 - level) * 16.0) as i32
-    );
-    // Note: This is a hacky way and might not work on all systems.
-    // In a real product, IOKit or CoreDisplay would be used.
-    let _ = Command::new("osascript").args(["-e", &script]).status();
+    unsafe {
+        let matching = IOServiceMatching("IODisplayConnect\0".as_ptr() as *const i8);
+        let mut iterator = 0u32;
+        let kr = IOServiceGetMatchingServices(0, matching, &mut iterator);
+        if kr == 0 {
+            let mut service = IOIteratorNext(iterator);
+            while service != 0 {
+                let key = NSString::from_str("brightness");
+                IODisplaySetFloatParameter(service, 0, &*key, level);
+                IOObjectRelease(service);
+                service = IOIteratorNext(iterator);
+            }
+            IOObjectRelease(iterator);
+        }
+    }
 }
 
 pub fn show_permission_alert(title: &str, message: &str) {
@@ -330,11 +371,10 @@ pub fn show_permission_alert(title: &str, message: &str) {
 }
 
 pub fn show_error_dialog(title: &str, message: &str) {
-    let safe_title = title.replace('\\', "\\\\").replace('"', "\\\"");
-    let safe_message = message.replace('\\', "\\\\").replace('"', "\\\"");
-    let script = format!(
-        "display alert \"{}\" message \"{}\" buttons {{\"OK\"}} default button \"OK\"",
-        safe_title, safe_message
-    );
-    let _ = Command::new("osascript").args(["-e", &script]).status();
+    if let Some(mtm) = MainThreadMarker::new() {
+        let alert = NSAlert::new(mtm);
+        alert.setMessageText(&NSString::from_str(title));
+        alert.setInformativeText(&NSString::from_str(message));
+        alert.runModal();
+    }
 }

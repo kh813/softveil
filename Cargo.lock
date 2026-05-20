@@ -3918,7 +3918,7 @@ dependencies = [
 
 [[package]]
 name = "softveil"
-version = "0.1.18"
+version = "0.1.20"
 dependencies = [
  "auto-launch",
  "block2 0.6.2",
@@ -3944,6 +3944,7 @@ dependencies = [
  "tract-onnx",
  "tray-icon",
  "wgpu",
+ "windows 0.58.0",
  "windows-sys 0.59.0",
  "winres",
 ]
