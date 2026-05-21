@@ -11,6 +11,7 @@ pub enum FilterMode {
     AIOcrInterference,
     HighIntensitySPD,
     StealthDark,
+    StealthLight,
 }
 
 /// ディスプレイの用途・サイズカテゴリ

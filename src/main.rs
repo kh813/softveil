@@ -8,6 +8,7 @@ mod single_instance;
 mod tray;
 mod hotkey;
 mod ai_detection;
+mod benchmark;
 
 use app::AppState;
 use display_config::{MonitorId, DisplayConfig, DisconnectedCache, FilterMode, DisplayCategory};
@@ -33,7 +34,14 @@ enum UserEvent {
 }
 
 fn main() {
-    println!("Starting Softveil...");
+    let args: Vec<String> = std::env::args().collect();
+    let is_benchmark = args.contains(&"--benchmark".to_string());
+
+    if is_benchmark {
+        println!("Benchmark mode enabled.");
+    } else {
+        println!("Starting Softveil...");
+    }
     
     #[cfg(target_os = "windows")]
     platform::windows::enable_dpi_awareness();
@@ -109,6 +117,11 @@ fn main() {
     state.check_stealth_transition();
     overlay::sync_all(&mut overlays, &state, &gpu);
     
+    if is_benchmark {
+        benchmark::run_benchmark(gpu.clone(), state, &mut overlays);
+        std::process::exit(0);
+    }
+
     let tray_handle = match TrayHandle::new(&state, &overlays) {
         Ok(t) => {
             println!("Tray icon created.");
@@ -395,14 +408,15 @@ fn main() {
                     if let Some(id_hex) = id_str.strip_prefix("0x") {
                         if let Ok(val) = u64::from_str_radix(id_hex, 16) {
                             let monitor_id = MonitorId(val);
-                            let mode = match mode_str {
-                                "BlackLayer" => Some(FilterMode::BlackLayer),
-                                "VerticalLouver" => Some(FilterMode::VerticalLouver),
-                                "AIOcrInterference" => Some(FilterMode::AIOcrInterference),
-                                "HighIntensitySPD" => Some(FilterMode::HighIntensitySPD),
-                                "StealthDark" => Some(FilterMode::StealthDark),
-                                _ => None,
-                            };
+                                let mode = match mode_str {
+                                    "BlackLayer" => Some(FilterMode::BlackLayer),
+                                    "VerticalLouver" => Some(FilterMode::VerticalLouver),
+                                    "AIOcrInterference" => Some(FilterMode::AIOcrInterference),
+                                    "HighIntensitySPD" => Some(FilterMode::HighIntensitySPD),
+                                    "StealthDark" => Some(FilterMode::StealthDark),
+                                    "StealthLight" => Some(FilterMode::StealthLight),
+                                    _ => None,
+                                };
                             if let Some(m) = mode {
                                 println!("Menu: Set Display {:?} Filter Mode {:?}", monitor_id, m);
 

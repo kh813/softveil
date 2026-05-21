@@ -207,6 +207,36 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             let final_alpha = clamp(max(alpha_main, alpha_dither), 0.0, 1.0);
             return vec4<f32>(glow, glow, glow, final_alpha);
         }
+    } else if (mode == 5u) {
+        // ── StealthLight (Integrated Stealth Switch - Light Mode) ──
+        // Optimized for light environments. High-Luma Contrast Collapse (HLCC).
+        
+        let sub_x = fract(in.tex_coords.x * width); // 0.0 - 1.0 subpixel
+        let subpixel_noise = stable_noise(vec2<f32>(floor(x * 3.0), floor(y))) * 0.15 * alpha;
+
+        if (panel_type == 1u) {
+            // OLED: High-Luma Narrow Slit
+            let p = 3.0;
+            let is_slit = (u32(x) % 3u == 0u);
+            let base_dim = 0.05 * (1.0 - alpha);
+            var alpha_main = select(alpha * 0.8, 0.0, is_slit);
+            return vec4<f32>(base_dim, base_dim, base_dim, clamp(alpha_main + subpixel_noise, 0.0, 1.0));
+        } else {
+            // LCD: High-Luma Contrast Collapse (HLCC) - Tuned for better readability
+            // 背景（白）を沈めるベースベール (dimming veil)
+            // 0.32 -> 0.22 に微調整。明るさを維持しつつコントラストを破壊。
+            let veil = 0.22 * alpha; 
+            
+            let p_raw = max(period_px * 0.5, 2.0);
+            let p = u32(max(floor(p_raw), 2.0));
+            // 0.5px 相当の極細ライン
+            let is_fine_line = (u32(floor(x * 2.0)) % (p * 2u) < 1u);
+            // ラインの濃度も 0.85 -> 0.75 に微調整
+            let alpha_main = select(alpha * 0.75, 0.0, is_fine_line);
+            
+            let final_alpha = clamp(alpha_main + subpixel_noise, 0.0, 1.0);
+            return vec4<f32>(veil, veil, veil, final_alpha);
+        }
     }
 
     return vec4<f32>(0.0, 0.0, 0.0, alpha);

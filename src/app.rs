@@ -41,6 +41,7 @@ pub struct AppState {
     pub ai_detection_enabled: bool,
     pub ai_peeper_detected: bool,
     pub stealth_snapshot: Option<OSSettingsSnapshot>,
+    pub is_stealth_light: bool,
     stored_display_settings: HashMap<String, DisplayConfig>,
 }
 
@@ -68,6 +69,7 @@ impl AppState {
             ai_detection_enabled: config.ai_detection_enabled,
             ai_peeper_detected: false,
             stealth_snapshot: None,
+            is_stealth_light: false,
             stored_display_settings: config.display_settings,
         }
     }
@@ -119,9 +121,10 @@ impl AppState {
             return;
         }
 
-        let any_stealth = self.displays.values().any(|c| c.enabled && c.filter_mode == FilterMode::StealthDark);
+        let any_stealth_dark = self.displays.values().any(|c| c.enabled && c.filter_mode == FilterMode::StealthDark);
+        let any_stealth_light = self.displays.values().any(|c| c.enabled && c.filter_mode == FilterMode::StealthLight);
         
-        if any_stealth && self.stealth_snapshot.is_none() {
+        if (any_stealth_dark || any_stealth_light) && self.stealth_snapshot.is_none() {
             // Activate stealth mode
             let was_dark = crate::platform::is_dark_mode();
             let orig_brightness = crate::platform::get_brightness();
@@ -131,9 +134,16 @@ impl AppState {
                 original_brightness: orig_brightness,
             });
             
-            crate::platform::set_dark_mode(true);
-            crate::platform::set_brightness(0.25); // Stealth brightness 25%
-        } else if !any_stealth && self.stealth_snapshot.is_some() {
+            self.is_stealth_light = any_stealth_light;
+            crate::platform::set_dark_mode(!any_stealth_light);
+            crate::platform::set_brightness(0.20); // Stealth brightness 20% (Reduced from 25%)
+        } else if (any_stealth_dark || any_stealth_light) && self.stealth_snapshot.is_some() {
+            // Check if we need to flip theme between StealthDark and StealthLight
+            if self.is_stealth_light != any_stealth_light {
+                self.is_stealth_light = any_stealth_light;
+                crate::platform::set_dark_mode(!any_stealth_light);
+            }
+        } else if !any_stealth_dark && !any_stealth_light && self.stealth_snapshot.is_some() {
             // Restore settings
             self.restore_os_settings();
         }

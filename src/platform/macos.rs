@@ -378,3 +378,19 @@ pub fn show_error_dialog(title: &str, message: &str) {
         alert.runModal();
     }
 }
+
+pub fn capture_primary_display() -> Result<DynamicImage, String> {
+    let path = "/tmp/softveil_bench.png";
+    let output = std::process::Command::new("screencapture")
+        .arg("-x")
+        .arg(path)
+        .output()
+        .map_err(|e| e.to_string())?;
+    
+    if output.status.success() {
+        let img = image::open(path).map_err(|e| e.to_string())?;
+        Ok(img)
+    } else {
+        Err("screencapture failed".to_string())
+    }
+}

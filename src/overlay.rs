@@ -244,6 +244,7 @@ impl OverlayWindow {
             FilterMode::AIOcrInterference => 2.0,
             FilterMode::HighIntensitySPD => 3.0,
             FilterMode::StealthDark => 4.0,
+            FilterMode::StealthLight => 5.0,
         };
 
         let effective_mode = mode_val;

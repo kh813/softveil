@@ -53,9 +53,13 @@
 **必要な環境:**
 - Rust ツールチェーン (`rustup`)
 - (macOS) Xcode Command Line Tools
-- (Windows クロスビルド用) `x86_64-pc-windows-gnu` ターゲット
+- (Windows) Visual Studio Build Tools (C++ 開発環境)
+- (Linux/WSL) `libgtk-3-dev`, `libglib2.0-dev`, `pkg-config`, `libclang-dev`
 
 ```bash
+# Linux/WSL での依存関係インストール (Ubuntu/Debian)
+sudo apt-get install libgtk-3-dev libglib2.0-dev pkg-config libclang-dev
+
 # macOS ネイティブビルド
 make mac
 

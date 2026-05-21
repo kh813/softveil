@@ -271,7 +271,7 @@ pub fn set_dark_mode(enabled: bool) {
                 0,
                 lparam.as_ptr() as LPARAM,
                 SMTO_ABORTIFHUNG,
-                2000,
+                500, // Reduced from 2000 to 500ms
                 std::ptr::null_mut(),
             );
         }
@@ -374,6 +374,54 @@ pub fn show_error_dialog(title: &str, message: &str) {
     let wide_message: Vec<u16> = message.encode_utf16().chain(std::iter::once(0)).collect();
     unsafe {
         MessageBoxW(std::ptr::null_mut(), wide_message.as_ptr(), wide_title.as_ptr(), MB_ICONERROR | MB_OK);
+    }
+}
+
+use image::DynamicImage;
+
+/// 画面全体（プライマリモニタ）をキャプチャして DynamicImage として返す
+pub fn capture_primary_display() -> std::result::Result<DynamicImage, String> {
+    unsafe {
+        let hdc_screen = GetDC(std::ptr::null_mut());
+        if hdc_screen.is_null() { return Err("Failed to get screen DC".to_string()); }
+        
+        let width = GetDeviceCaps(hdc_screen, HORZRES as i32);
+        let height = GetDeviceCaps(hdc_screen, VERTRES as i32);
+
+        let hdc_mem = CreateCompatibleDC(hdc_screen);
+        let h_bitmap = CreateCompatibleBitmap(hdc_screen, width, height);
+        let h_old_obj = SelectObject(hdc_mem, h_bitmap as HGDIOBJ);
+
+        // キャプチャ実行
+        BitBlt(hdc_mem, 0, 0, width, height, hdc_screen, 0, 0, SRCCOPY);
+
+        // ビットマップデータを取得
+        let mut bmi: BITMAPINFO = std::mem::zeroed();
+        bmi.bmiHeader.biSize = std::mem::size_of::<BITMAPINFOHEADER>() as u32;
+        bmi.bmiHeader.biWidth = width;
+        bmi.bmiHeader.biHeight = -height; // Top-down
+        bmi.bmiHeader.biPlanes = 1;
+        bmi.bmiHeader.biBitCount = 32;
+        bmi.bmiHeader.biCompression = BI_RGB as u32;
+
+        let mut buffer: Vec<u8> = vec![0; (width * height * 4) as usize];
+        GetDIBits(hdc_mem, h_bitmap, 0, height as u32, buffer.as_mut_ptr() as *mut _, &mut bmi, DIB_RGB_COLORS);
+
+        // クリーンアップ
+        SelectObject(hdc_mem, h_old_obj);
+        DeleteObject(h_bitmap as HGDIOBJ);
+        DeleteDC(hdc_mem);
+        ReleaseDC(std::ptr::null_mut(), hdc_screen);
+
+        // BGRA -> RGBA 変換
+        for chunk in buffer.chunks_exact_mut(4) {
+            chunk.swap(0, 2);
+        }
+        
+        let img = image::ImageBuffer::<image::Rgba<u8>, Vec<u8>>::from_raw(width as u32, height as u32, buffer)
+            .ok_or_else(|| "Failed to create image buffer".to_string())?;
+            
+        Ok(DynamicImage::ImageRgba8(img))
     }
 }
 

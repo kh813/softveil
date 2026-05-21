@@ -40,9 +40,16 @@
 
 ### ソースからビルド
 
-**必要なもの**: Rust ツールチェーン (`rustup`)、macOS の場合は Xcode Command Line Tools
+**必要なもの**: 
+- Rust ツールチェーン (`rustup`)
+- macOS: Xcode Command Line Tools
+- Windows: Visual Studio Build Tools (C++ 開発環境)
+- Linux/WSL: `libgtk-3-dev`, `libglib2.0-dev`, `pkg-config`, `libclang-dev`
 
 ```bash
+# Linux/WSL での依存関係インストール (Ubuntu/Debian)
+sudo apt-get update && sudo apt-get install -y libgtk-3-dev libglib2.0-dev pkg-config libclang-dev
+
 git clone https://github.com/yourname/softveil.git
 cd softveil
 

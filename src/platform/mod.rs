@@ -168,3 +168,12 @@ pub fn set_brightness(level: f32) {
     #[cfg(target_os = "windows")]
     windows::set_brightness(level);
 }
+
+use image::DynamicImage;
+
+pub fn capture_primary_display() -> Result<DynamicImage, String> {
+    #[cfg(target_os = "macos")]
+    return macos::capture_primary_display();
+    #[cfg(target_os = "windows")]
+    return windows::capture_primary_display();
+}
