@@ -31,6 +31,7 @@ pub fn run_benchmark(gpu: Arc<GpuContext>, mut state: AppState, overlays: &mut V
         FilterMode::HighIntensitySPD,
         FilterMode::StealthDark,
         FilterMode::StealthLight,
+        FilterMode::StealthLightSubpixel,
     ];
     
     // More realistic Alpha range for evaluation
@@ -65,7 +66,7 @@ pub fn run_benchmark(gpu: Arc<GpuContext>, mut state: AppState, overlays: &mut V
             io::stdout().flush().unwrap();
             let mut img = match crate::platform::capture_primary_display() {
                 Ok(i) => i,
-                Err(e) => {
+                Err(_e) => {
                     println!(" Error!");
                     continue;
                 }
@@ -100,6 +101,54 @@ pub fn run_benchmark(gpu: Arc<GpuContext>, mut state: AppState, overlays: &mut V
 
     fs::write("BENCHMARK_REPORT.md", report).expect("Failed to write report");
     println!("\nBenchmark complete. Report saved to BENCHMARK_REPORT.md");
+
+    // Phase 10: Auto-Optimization prototype
+    println!("Running Auto-Optimization search...");
+    if let Some((opt_period, opt_cover)) = find_optimal_params(gpu, state, overlays, test_monitor_id) {
+        println!("\n[Optimization Result]");
+        println!("Optimal Period: {:.2}mm", opt_period);
+        println!("Optimal Cover Ratio: {:.0}%", opt_cover * 100.0);
+        println!("These parameters maximized the Obfuscation Index for this hardware.");
+    }
+}
+
+pub fn find_optimal_params(
+    gpu: Arc<GpuContext>,
+    mut state: AppState,
+    overlays: &mut Vec<OverlayWindow>,
+    monitor_id: MonitorId,
+) -> Option<(f32, f32)> {
+    let periods = [0.15, 0.20, 0.30, 0.40];
+    let covers = [0.50, 0.70, 0.85];
+    
+    let mut best_score = -1.0;
+    let mut best_params = None;
+
+    state.set_filter_mode(&monitor_id, FilterMode::HighIntensitySPD);
+    state.set_display_alpha(&monitor_id, 0.3);
+
+    for &p in &periods {
+        for &c in &covers {
+            state.set_override_period(&monitor_id, Some(p));
+            state.set_override_cover_ratio(&monitor_id, Some(c));
+            
+            crate::overlay::sync_all(overlays, &state, &gpu);
+            #[cfg(target_os = "windows")]
+            pump_messages();
+            
+            std::thread::sleep(Duration::from_millis(500));
+            
+            if let Ok(img) = crate::platform::capture_primary_display() {
+                let (_, score) = analyze_privacy_effect(&img);
+                if score > best_score {
+                    best_score = score;
+                    best_params = Some((p, c));
+                }
+            }
+        }
+    }
+    
+    best_params
 }
 
 #[cfg(target_os = "windows")]

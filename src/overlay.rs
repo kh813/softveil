@@ -245,6 +245,7 @@ impl OverlayWindow {
             FilterMode::HighIntensitySPD => 3.0,
             FilterMode::StealthDark => 4.0,
             FilterMode::StealthLight => 5.0,
+            FilterMode::StealthLightSubpixel => 6.0,
         };
 
         let effective_mode = mode_val;

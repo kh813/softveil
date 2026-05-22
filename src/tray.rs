@@ -162,6 +162,7 @@ fn build_menu(state: &AppState, overlays: &[OverlayWindow]) -> Menu {
             (FilterMode::HighIntensitySPD,    "SPD プロテクト ✦ (推奨)"),
             (FilterMode::StealthDark,         "ステルス・ダーク (LLCC)"),
             (FilterMode::StealthLight,        "ステルス・ライト (HLCC)"),
+            (FilterMode::StealthLightSubpixel, "ステルス・ライト (Subpixel)"),
             (FilterMode::VerticalLouver,      "標準ルーバー"),
             (FilterMode::AIOcrInterference,   "AI OCR 妨害"),
             (FilterMode::BlackLayer,          "単色（輝度を抑える）"),

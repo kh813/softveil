@@ -1,4 +1,4 @@
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![windows_subsystem = "windows"]
 
 mod app;
 mod display_config;
@@ -37,12 +37,6 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     let is_benchmark = args.contains(&"--benchmark".to_string());
 
-    if is_benchmark {
-        println!("Benchmark mode enabled.");
-    } else {
-        println!("Starting Softveil...");
-    }
-    
     #[cfg(target_os = "windows")]
     platform::windows::enable_dpi_awareness();
 
@@ -415,6 +409,7 @@ fn main() {
                                     "HighIntensitySPD" => Some(FilterMode::HighIntensitySPD),
                                     "StealthDark" => Some(FilterMode::StealthDark),
                                     "StealthLight" => Some(FilterMode::StealthLight),
+                                    "StealthLightSubpixel" => Some(FilterMode::StealthLightSubpixel),
                                     _ => None,
                                 };
                             if let Some(m) = mode {

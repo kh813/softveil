@@ -237,6 +237,34 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             let final_alpha = clamp(alpha_main + subpixel_noise, 0.0, 1.0);
             return vec4<f32>(veil, veil, veil, final_alpha);
         }
+    } else if (mode == 6u) {
+        // ── StealthLightSubpixel (Subpixel UHD Jamming) ──
+        // Highly granular subpixel-level control to increase color shift.
+        
+        let p_raw = max(period_px * 0.4, 2.0);
+        let p = u32(max(floor(p_raw), 2.0));
+        
+        // Subpixel coordinate (0.0 - width*3.0)
+        let sx = in.tex_coords.x * width * 3.0;
+        let sy = in.tex_coords.y * height;
+        let sp_idx = u32(floor(sx)) % 3u; // 0:R, 1:G, 2:B
+        
+        let veil = 0.20 * alpha;
+        
+        // Each channel has a slightly shifted pattern to maximize edge destruction
+        let shift = f32(sp_idx);
+        let is_fine_line = (u32(floor(sx + shift)) % (p * 3u) < 1u);
+        
+        let alpha_main = select(alpha * 0.7, 0.0, is_fine_line);
+        let noise = stable_noise(vec2<f32>(floor(sx), floor(sy))) * 0.1 * alpha;
+        
+        let final_a = clamp(alpha_main + noise, 0.0, 1.0);
+        
+        // Intentional chromatic aberration effect
+        let color_offset = select(0.015, select(-0.015, 0.0, sp_idx == 1u), sp_idx == 0u) * alpha;
+        let c = clamp(veil + color_offset, 0.0, 1.0);
+        
+        return vec4<f32>(c, c, c, final_a);
     }
 
     return vec4<f32>(0.0, 0.0, 0.0, alpha);

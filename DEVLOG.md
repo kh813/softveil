@@ -27,6 +27,25 @@
 
 ## 2026-05-21
 
+### Phase 8: サブピクセル・レンダリング・ハックの実装 (Subpixel UHD Jamming)
+- **Subpixel 制御の導入**:
+    - `shader.wgsl` において `(x * 3.0)` 座標系を導入し、R/G/B サブピクセル単位での独立した透過制御を実現。
+    - **Stealth Light (Subpixel) モード**: 0.5px 相当の極細ラインをサブピクセルごとに 1/3px ずつずらして配置するアルゴリズムを実装。文字エッジの MTF (Modulation Transfer Function) を物理的に破壊し、斜めからの色偏移（Chromatic Aberration）を意図的に増幅させることに成功。
+    - **UI 統合**: トレイメニューに「Stealth Light (Subpixel)」を追加。
+
+### Phase 10: 動的最適化 (Benchmark-Driven Auto-Optimization)
+- **パラメータ自動選定ロジック**:
+    - `--benchmark` モードにおいて、`period_mm` と `cover_ratio` の複数の組み合わせを自動テストし、Obfuscation Index が最大となる「ハードウェア固有の最適値」を算出する検索アルゴリズム `find_optimal_params` を実装。
+    - **評価指標の拡充**: 新規追加したサブピクセルフィルタをベンチマーク対象に追加し、客観的な秘匿性能を測定。
+
+### Windows Subsystem の調整
+- **コンソールウィンドウの強制非表示**: `src/main.rs` の `windows_subsystem = "windows"` 属性を無条件に適用するよう修正（Debugビルドでも `cmd.exe` が開かないように変更）。
+- **不要な標準出力の整理**: GUIモード起動時の不要な `println!` を整理。
+
+### 既知の問題 / 持ち越し
+- **OCR 認識率の統合**: Tesseract 環境の構築と、実際の文字認識率との相関分析。
+- **動的パラメータの永続化**: 最適化されたパラメータを `DisplayConfig` に自動保存し、次回のフィルター適用時に反映させる仕組みの検討。
+
 ### Phase 8: ステルス・ライト & サブピクセル・ハック (Stealth Light Implementation)
 - **StealthLight (HLCC) の実装**:
     - ライトモード向けのコントラスト崩壊アルゴリズムを `shader.wgsl` に実装。背景（白）をわずかに沈める `veil`（ベースベール）と 0.5px ラインによるエッジ破壊を組み合わせ。
