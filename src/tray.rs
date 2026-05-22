@@ -17,6 +17,11 @@ pub const MENU_ID_OVERRIDE_SPEED_PREFIX: &str = "ov_speed:";
 pub const MENU_ID_RESET_RECOMMENDED: &str = "reset_recommended:";
 pub const MENU_ID_AUTO_START: &str = "auto_start";
 pub const MENU_ID_AI_DETECTION: &str = "ai_detection";
+pub const MENU_ID_PRESET_APPLY_PREFIX: &str = "preset_apply:";
+pub const MENU_ID_PRESET_DELETE_PREFIX: &str = "preset_delete:";
+pub const MENU_ID_PRESET_SAVE_CURRENT: &str = "preset_save_current";
+pub const MENU_ID_PRESET_CLEAR_ALL: &str = "preset_clear_all";
+pub const MENU_ID_RUN_BENCHMARK: &str = "run_benchmark";
 pub const MENU_ID_QUIT: &str = "quit";
 
 pub struct TrayHandle {
@@ -72,6 +77,10 @@ impl TrayHandle {
         }
         let menu = build_menu(state, overlays);
         self.icon.set_menu(Some(Box::new(menu)));
+    }
+
+    pub fn set_tooltip(&self, tooltip: &str) {
+        let _ = self.icon.set_tooltip(Some(tooltip));
     }
 }
 
@@ -318,6 +327,77 @@ fn build_menu(state: &AppState, overlays: &[OverlayWindow]) -> Menu {
         None,
     );
     let _ = menu.append(&ai_detection_item);
+
+    let _ = menu.append(&PredefinedMenuItem::separator());
+
+    // --- Presets Submenu ---
+    let presets_submenu = Submenu::new("設定プリセット", true);
+    
+    if state.presets.is_empty() {
+        let empty_item = MenuItem::with_id("preset_empty", "(プリセットなし)", false, None);
+        let _ = presets_submenu.append(&empty_item);
+    } else {
+        // 1. Apply to All
+        let apply_all_submenu = Submenu::new("全ディスプレイに一括適用", true);
+        for preset in &state.presets {
+            let item = MenuItem::with_id(
+                format!("preset_all:{}", preset.name),
+                preset.name.clone(),
+                true,
+                None,
+            );
+            let _ = apply_all_submenu.append(&item);
+        }
+        let _ = presets_submenu.append(&apply_all_submenu);
+        
+        let _ = presets_submenu.append(&PredefinedMenuItem::separator());
+
+        // 2. Per-Display Application
+        for overlay in overlays {
+            let display_preset_submenu = Submenu::new(&overlay.monitor_name, true);
+            for preset in &state.presets {
+                let id_str = overlay.monitor_id.to_string();
+                let item = MenuItem::with_id(
+                    format!("{}{}:{}", MENU_ID_PRESET_APPLY_PREFIX, id_str, preset.name),
+                    preset.name.clone(),
+                    true,
+                    None,
+                );
+                let _ = display_preset_submenu.append(&item);
+            }
+            let _ = presets_submenu.append(&display_preset_submenu);
+        }
+
+        let _ = presets_submenu.append(&PredefinedMenuItem::separator());
+        
+        // 3. Management
+        let delete_submenu = Submenu::new("プリセットを削除", true);
+        for preset in &state.presets {
+            let delete_item = MenuItem::with_id(
+                format!("{}{}", MENU_ID_PRESET_DELETE_PREFIX, preset.name),
+                preset.name.clone(),
+                true,
+                None,
+            );
+            let _ = delete_submenu.append(&delete_item);
+        }
+        let _ = presets_submenu.append(&delete_submenu);
+        
+        let clear_all_item = MenuItem::with_id(MENU_ID_PRESET_CLEAR_ALL, "すべてのプリセットを消去", true, None);
+        let _ = presets_submenu.append(&clear_all_item);
+        
+        let _ = presets_submenu.append(&PredefinedMenuItem::separator());
+    }
+
+    let save_current_item = MenuItem::with_id(MENU_ID_PRESET_SAVE_CURRENT, "現在の設定を保存...", true, None);
+    let _ = presets_submenu.append(&save_current_item);
+
+    let _ = presets_submenu.append(&PredefinedMenuItem::separator());
+    
+    let run_benchmark_item = MenuItem::with_id(MENU_ID_RUN_BENCHMARK, "画面を最適化する (ベンチマーク)...", true, None);
+    let _ = presets_submenu.append(&run_benchmark_item);
+
+    let _ = menu.append(&presets_submenu);
 
     let _ = menu.append(&PredefinedMenuItem::separator());
 

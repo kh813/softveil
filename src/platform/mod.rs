@@ -133,6 +133,13 @@ pub fn show_error_dialog(title: &str, message: &str) {
     windows::show_error_dialog(title, message);
 }
 
+pub fn show_info_dialog(title: &str, message: &str) {
+    #[cfg(target_os = "macos")]
+    macos::show_info_dialog(title, message);
+    #[cfg(target_os = "windows")]
+    windows::show_info_dialog(title, message);
+}
+
 #[cfg(target_os = "macos")]
 pub fn has_screen_capture_access() -> bool {
     return macos::has_screen_capture_access();
@@ -171,9 +178,17 @@ pub fn set_brightness(level: f32) {
 
 use image::DynamicImage;
 
+#[allow(dead_code)]
 pub fn capture_primary_display() -> Result<DynamicImage, String> {
     #[cfg(target_os = "macos")]
     return macos::capture_primary_display();
     #[cfg(target_os = "windows")]
     return windows::capture_primary_display();
+}
+
+pub fn capture_display(monitor_id: &MonitorId) -> Result<DynamicImage, String> {
+    #[cfg(target_os = "macos")]
+    return macos::capture_display(monitor_id);
+    #[cfg(target_os = "windows")]
+    return windows::capture_display(monitor_id);
 }

@@ -377,16 +377,46 @@ pub fn show_error_dialog(title: &str, message: &str) {
     }
 }
 
+pub fn show_info_dialog(title: &str, message: &str) {
+    let wide_title: Vec<u16> = title.encode_utf16().chain(std::iter::once(0)).collect();
+    let wide_message: Vec<u16> = message.encode_utf16().chain(std::iter::once(0)).collect();
+    unsafe {
+        MessageBoxW(std::ptr::null_mut(), wide_message.as_ptr(), wide_title.as_ptr(), MB_ICONINFORMATION | MB_OK);
+    }
+}
+
 use image::DynamicImage;
 
 /// 画面全体（プライマリモニタ）をキャプチャして DynamicImage として返す
+#[allow(dead_code)]
 pub fn capture_primary_display() -> std::result::Result<DynamicImage, String> {
+    capture_display(&MonitorId(0)) // Fallback to primary if id is 0 or use specialized logic
+}
+
+pub fn capture_display(monitor_id: &MonitorId) -> std::result::Result<DynamicImage, String> {
     unsafe {
-        let hdc_screen = GetDC(std::ptr::null_mut());
-        if hdc_screen.is_null() { return Err("Failed to get screen DC".to_string()); }
+        let hmonitor = monitor_id.0 as HMONITOR;
+        let mut info: MONITORINFOEXW = std::mem::zeroed();
+        info.monitorInfo.cbSize = std::mem::size_of::<MONITORINFOEXW>() as u32;
         
-        let width = GetDeviceCaps(hdc_screen, HORZRES as i32);
-        let height = GetDeviceCaps(hdc_screen, VERTRES as i32);
+        let (hdc_screen, width, height) = if monitor_id.0 == 0 || GetMonitorInfoW(hmonitor, &mut info.monitorInfo as *mut _ as *mut _) == 0 {
+            let hdc = GetDC(std::ptr::null_mut());
+            let w = GetDeviceCaps(hdc, HORZRES as i32);
+            let h = GetDeviceCaps(hdc, VERTRES as i32);
+            (hdc, w, h)
+        } else {
+            let hdc = CreateDCW(
+                info.szDevice.as_ptr(),
+                info.szDevice.as_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+            );
+            let w = GetDeviceCaps(hdc, HORZRES as i32);
+            let h = GetDeviceCaps(hdc, VERTRES as i32);
+            (hdc, w, h)
+        };
+
+        if hdc_screen.is_null() { return Err("Failed to get DC".to_string()); }
 
         let hdc_mem = CreateCompatibleDC(hdc_screen);
         let h_bitmap = CreateCompatibleBitmap(hdc_screen, width, height);
@@ -411,7 +441,11 @@ pub fn capture_primary_display() -> std::result::Result<DynamicImage, String> {
         SelectObject(hdc_mem, h_old_obj);
         DeleteObject(h_bitmap as HGDIOBJ);
         DeleteDC(hdc_mem);
-        ReleaseDC(std::ptr::null_mut(), hdc_screen);
+        if monitor_id.0 == 0 {
+            ReleaseDC(std::ptr::null_mut(), hdc_screen);
+        } else {
+            DeleteDC(hdc_screen);
+        }
 
         // BGRA -> RGBA 変換
         for chunk in buffer.chunks_exact_mut(4) {

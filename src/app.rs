@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use crate::display_config::{DisplayConfig, MonitorId, FilterMode, DisplayCategory};
+use crate::display_config::{DisplayConfig, MonitorId, FilterMode, DisplayCategory, Preset, FilterSettings};
 use serde::{Serialize, Deserialize};
 
 const APP_NAME: &str = "softveil";
@@ -12,6 +12,8 @@ pub struct AppConfig {
     pub auto_start: bool,
     pub ai_detection_enabled: bool,
     pub display_settings: HashMap<String, DisplayConfig>,
+    #[serde(default)]
+    pub presets: Vec<Preset>,
 }
 
 impl Default for AppConfig {
@@ -23,6 +25,7 @@ impl Default for AppConfig {
             auto_start: false,
             ai_detection_enabled: false,
             display_settings: HashMap::new(),
+            presets: Vec::new(),
         }
     }
 }
@@ -33,6 +36,7 @@ pub struct OSSettingsSnapshot {
     pub original_brightness: f32,
 }
 
+#[derive(Clone)]
 pub struct AppState {
     pub global_enabled: bool,
     pub displays: HashMap<MonitorId, DisplayConfig>,
@@ -42,6 +46,7 @@ pub struct AppState {
     pub ai_peeper_detected: bool,
     pub stealth_snapshot: Option<OSSettingsSnapshot>,
     pub is_stealth_light: bool,
+    pub presets: Vec<Preset>,
     stored_display_settings: HashMap<String, DisplayConfig>,
 }
 
@@ -70,6 +75,7 @@ impl AppState {
             ai_peeper_detected: false,
             stealth_snapshot: None,
             is_stealth_light: false,
+            presets: config.presets,
             stored_display_settings: config.display_settings,
         }
     }
@@ -89,9 +95,49 @@ impl AppState {
             auto_start: self.auto_start,
             ai_detection_enabled: self.ai_detection_enabled,
             display_settings,
+            presets: self.presets.clone(),
         };
 
         let _ = confy::store(APP_NAME, None, config);
+    }
+
+    pub fn save_preset(&mut self, name: String, settings: FilterSettings) {
+        if let Some(existing) = self.presets.iter_mut().find(|p| p.name == name) {
+            existing.settings = settings;
+        } else {
+            self.presets.push(Preset { name, settings });
+        }
+        self.save();
+    }
+
+    pub fn apply_preset(&mut self, name: &str, id: &MonitorId) {
+        if let Some(preset) = self.presets.iter().find(|p| p.name == name).cloned() {
+            if let Some(config) = self.displays.get_mut(id) {
+                config.apply_settings(&preset.settings);
+                self.check_stealth_transition();
+                self.save();
+            }
+        }
+    }
+
+    pub fn apply_preset_to_all(&mut self, name: &str) {
+        if let Some(preset) = self.presets.iter().find(|p| p.name == name).cloned() {
+            for config in self.displays.values_mut() {
+                config.apply_settings(&preset.settings);
+            }
+            self.check_stealth_transition();
+            self.save();
+        }
+    }
+
+    pub fn delete_preset(&mut self, name: &str) {
+        self.presets.retain(|p| p.name != name);
+        self.save();
+    }
+
+    pub fn clear_presets(&mut self) {
+        self.presets.clear();
+        self.save();
     }
 
     pub fn toggle_ai_detection(&mut self) -> bool {

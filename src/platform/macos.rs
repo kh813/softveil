@@ -375,17 +375,36 @@ pub fn show_error_dialog(title: &str, message: &str) {
         let alert = NSAlert::new(mtm);
         alert.setMessageText(&NSString::from_str(title));
         alert.setInformativeText(&NSString::from_str(message));
+        alert.setAlertStyle(objc2_app_kit::NSAlertStyle::Critical);
         alert.runModal();
     }
 }
 
+pub fn show_info_dialog(title: &str, message: &str) {
+    if let Some(mtm) = MainThreadMarker::new() {
+        let alert = NSAlert::new(mtm);
+        alert.setMessageText(&NSString::from_str(title));
+        alert.setInformativeText(&NSString::from_str(message));
+        alert.setAlertStyle(objc2_app_kit::NSAlertStyle::Informational);
+        alert.runModal();
+    }
+}
+
+#[allow(dead_code)]
 pub fn capture_primary_display() -> Result<DynamicImage, String> {
+    capture_display(&MonitorId(0))
+}
+
+pub fn capture_display(monitor_id: &MonitorId) -> Result<DynamicImage, String> {
     let path = "/tmp/softveil_bench.png";
-    let output = std::process::Command::new("screencapture")
-        .arg("-x")
-        .arg(path)
-        .output()
-        .map_err(|e| e.to_string())?;
+    let mut cmd = std::process::Command::new("screencapture");
+    cmd.arg("-x");
+    
+    if monitor_id.0 != 0 {
+        cmd.arg("-D").arg(monitor_id.0.to_string());
+    }
+    
+    let output = cmd.output().map_err(|e| e.to_string())?;
     
     if output.status.success() {
         let img = image::open(path).map_err(|e| e.to_string())?;

@@ -171,6 +171,24 @@ impl PanelType {
     }
 }
 
+/// フィルター設定一式をまとめたデータ構造
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct FilterSettings {
+    pub alpha: f32,
+    pub filter_mode: FilterMode,
+    pub filter_intensity: f32,
+    pub override_period_mm: Option<f32>,
+    pub override_cover_ratio: Option<f32>,
+    pub override_scroll_speed: Option<f32>,
+}
+
+/// 名前付きのプリセット設定
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Preset {
+    pub name: String,
+    pub settings: FilterSettings,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 pub struct MonitorId(pub u64);
 
@@ -257,6 +275,28 @@ impl DisplayConfig {
         }
         
         profile
+    }
+
+    /// 現在のフィルター設定を FilterSettings として取得する
+    pub fn get_settings(&self) -> FilterSettings {
+        FilterSettings {
+            alpha: self.alpha,
+            filter_mode: self.filter_mode,
+            filter_intensity: self.filter_intensity,
+            override_period_mm: self.override_period_mm,
+            override_cover_ratio: self.override_cover_ratio,
+            override_scroll_speed: self.override_scroll_speed,
+        }
+    }
+
+    /// FilterSettings を現在の設定に適用する
+    pub fn apply_settings(&mut self, settings: &FilterSettings) {
+        self.alpha = settings.alpha;
+        self.filter_mode = settings.filter_mode;
+        self.filter_intensity = settings.filter_intensity;
+        self.override_period_mm = settings.override_period_mm;
+        self.override_cover_ratio = settings.override_cover_ratio;
+        self.override_scroll_speed = settings.override_scroll_speed;
     }
 }
 

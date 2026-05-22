@@ -16,7 +16,9 @@ use tray::{
     TrayHandle, MENU_ID_GLOBAL_TOGGLE, MENU_ID_DISPLAY_TOGGLE_PREFIX, MENU_ID_ALPHA_PREFIX, 
     MENU_ID_MODE_PREFIX, MENU_ID_PANEL_PREFIX, MENU_ID_CATEGORY_PREFIX, MENU_ID_INTENSITY_PREFIX, 
     MENU_ID_OVERRIDE_PERIOD_PREFIX, MENU_ID_OVERRIDE_COVER_PREFIX, MENU_ID_OVERRIDE_SPEED_PREFIX,
-    MENU_ID_RESET_RECOMMENDED, MENU_ID_AUTO_START, MENU_ID_AI_DETECTION, MENU_ID_QUIT
+    MENU_ID_RESET_RECOMMENDED, MENU_ID_AUTO_START, MENU_ID_AI_DETECTION,
+    MENU_ID_PRESET_APPLY_PREFIX, MENU_ID_PRESET_DELETE_PREFIX, MENU_ID_PRESET_SAVE_CURRENT, MENU_ID_PRESET_CLEAR_ALL,
+    MENU_ID_RUN_BENCHMARK, MENU_ID_QUIT
 };
 use ai_detection::{AIDetectionCommand, start_detection_thread};
 use auto_launch::AutoLaunchBuilder;
@@ -27,10 +29,25 @@ use muda::MenuEvent;
 use std::sync::mpsc;
 
 #[derive(Debug)]
-enum UserEvent {
+pub enum UserEvent {
     Hotkey(HotkeyEvent),
     AIDetected(bool),
     DisplayChange,
+    RunBenchmark,
+    ProcessBenchmarkCommand,
+    BenchmarkProgress(f32, String),
+    BenchmarkFinished(String),
+}
+
+#[derive(Debug)]
+pub enum BenchmarkCommand {
+    Sync,
+    Capture(MonitorId, mpsc::Sender<Result<image::DynamicImage, String>>),
+    CaptureBatch(Vec<MonitorId>, mpsc::Sender<Vec<(MonitorId, Result<image::DynamicImage, String>)>>),
+    SetTestSettings(MonitorId, FilterMode, f32, Option<f32>, Option<f32>, Option<f32>),
+    SetBatchSettings(Vec<(MonitorId, FilterMode, f32, Option<f32>, Option<f32>, Option<f32>)>),
+    Progress(f32, String),
+    Finished(Vec<crate::display_config::Preset>, String),
 }
 
 fn main() {
@@ -59,6 +76,9 @@ fn main() {
     
     let mut state = AppState::new();
     let mut cache = DisconnectedCache::new();
+
+    let (bench_cmd_tx, bench_cmd_rx) = mpsc::channel::<BenchmarkCommand>();
+    let mut current_bench_resp_tx: Option<mpsc::Sender<()>> = None;
 
     // Phase 5: Check Screen Capture access (without automatic prompt)
     #[cfg(target_os = "macos")]
@@ -260,6 +280,47 @@ fn main() {
                     overlay::sync_all(&mut overlays, &state, &gpu);
                     needs_animation = calc_needs_animation(&overlays, &state);
                 }
+            Event::UserEvent(UserEvent::RunBenchmark) => {
+                println!("Starting benchmark from UI...");
+                let monitor_info: Vec<(MonitorId, String)> = overlays.iter()
+                    .map(|o| (o.monitor_id, o.monitor_name.clone()))
+                    .collect();
+                
+                let mut original_settings = std::collections::HashMap::new();
+                for overlay in &overlays {
+                    if let Some(config) = state.displays.get(&overlay.monitor_id) {
+                        original_settings.insert(overlay.monitor_id, config.get_settings());
+                    }
+                }
+
+                let (resp_tx, resp_rx) = mpsc::channel();
+                current_bench_resp_tx = Some(resp_tx);
+
+                let cmd_tx = bench_cmd_tx.clone();
+                let proxy_clone = proxy.clone();
+                
+                std::thread::spawn(move || {
+                    benchmark::run_benchmark_threaded(monitor_info, cmd_tx, resp_rx, original_settings, proxy_clone);
+                });
+            }
+            Event::UserEvent(UserEvent::ProcessBenchmarkCommand) => {
+                // Do nothing, just wakeup and hit MainEventsCleared
+            }
+            Event::UserEvent(UserEvent::BenchmarkProgress(progress, ref message)) => {
+                println!("Benchmark Progress: {:.0}% - {}", progress * 100.0, message);
+                if let Some(ref t) = tray_handle {
+                    t.set_tooltip(&format!("Softveil (ベンチマーク中: {:.0}%)", progress * 100.0));
+                }
+            }
+            Event::UserEvent(UserEvent::BenchmarkFinished(ref summary)) => {
+                if let Some(ref t) = tray_handle {
+                    t.set_tooltip("Softveil");
+                }
+                crate::platform::show_info_dialog(
+                    "最適化完了 / Optimization Complete",
+                    &format!("全モニターの性能測定と最適化が完了しました。\n\n【結果の要約】\n{}\n\n設定プリセットメニューから適用可能です。", summary)
+                );
+            }
             Event::UserEvent(UserEvent::DisplayChange) => {
                 let current_monitors: Vec<_> = event_loop_target.available_monitors().collect();
                 let current_ids: Vec<MonitorId> = current_monitors.iter().map(MonitorId::from_monitor).collect();
@@ -337,6 +398,68 @@ fn main() {
                     needs_animation = calc_needs_animation(&overlays, &state);
                     if let Some(ref t) = tray_handle {
                         t.rebuild_menu(&state, &overlays);
+                    }
+                }
+            }
+            Event::MainEventsCleared => {
+                // Handle commands from benchmark thread
+                while let Ok(cmd) = bench_cmd_rx.try_recv() {
+                    match cmd {
+                        BenchmarkCommand::Sync => {
+                            overlay::sync_all(&mut overlays, &state, &gpu);
+                            if let Some(ref tx) = current_bench_resp_tx {
+                                let _ = tx.send(());
+                            }
+                        }
+                        BenchmarkCommand::Capture(id, tx) => {
+                            let res = platform::capture_display(&id);
+                            let _ = tx.send(res);
+                        }
+                        BenchmarkCommand::CaptureBatch(ids, tx) => {
+                            let mut results = Vec::new();
+                            for id in ids {
+                                let res = platform::capture_display(&id);
+                                results.push((id, res));
+                            }
+                            let _ = tx.send(results);
+                        }
+                        BenchmarkCommand::SetTestSettings(id, mode, alpha, period, cover, speed) => {
+                            state.set_filter_mode(&id, mode);
+                            state.set_display_alpha(&id, alpha);
+                            state.set_override_period(&id, period);
+                            state.set_override_cover_ratio(&id, cover);
+                            state.set_override_scroll_speed(&id, speed);
+                            overlay::sync_all(&mut overlays, &state, &gpu);
+                            if let Some(ref tx) = current_bench_resp_tx {
+                                let _ = tx.send(());
+                            }
+                        }
+                        BenchmarkCommand::SetBatchSettings(batch) => {
+                            for (id, mode, alpha, period, cover, speed) in batch {
+                                state.set_filter_mode(&id, mode);
+                                state.set_display_alpha(&id, alpha);
+                                state.set_override_period(&id, period);
+                                state.set_override_cover_ratio(&id, cover);
+                                state.set_override_scroll_speed(&id, speed);
+                            }
+                            overlay::sync_all(&mut overlays, &state, &gpu);
+                            if let Some(ref tx) = current_bench_resp_tx {
+                                let _ = tx.send(());
+                            }
+                        }
+                        BenchmarkCommand::Progress(progress, message) => {
+                            let _ = proxy.send_event(UserEvent::BenchmarkProgress(progress, message));
+                        }
+                        BenchmarkCommand::Finished(new_presets, summary) => {
+                            println!("Benchmark finished. Received {} new presets.", new_presets.len());
+                            for preset in new_presets {
+                                state.save_preset(preset.name, preset.settings);
+                            }
+                            if let Some(ref t) = tray_handle {
+                                t.rebuild_menu(&state, &overlays);
+                            }
+                            let _ = proxy.send_event(UserEvent::BenchmarkFinished(summary));
+                        }
                     }
                 }
             }
@@ -608,6 +731,57 @@ fn main() {
                 if let Some(ref t) = tray_handle {
                     t.rebuild_menu(&state, &overlays);
                 }
+            } else if let Some(name) = id.strip_prefix("preset_all:") {
+                println!("Menu: Apply Preset {} to all displays", name);
+                state.apply_preset_to_all(name);
+                overlay::sync_all(&mut overlays, &state, &gpu);
+                needs_animation = calc_needs_animation(&overlays, &state);
+                if let Some(ref t) = tray_handle {
+                    t.rebuild_menu(&state, &overlays);
+                }
+            } else if let Some(rest) = id.strip_prefix(MENU_ID_PRESET_APPLY_PREFIX) {
+                let parts: Vec<&str> = rest.split(':').collect();
+                if parts.len() == 2 {
+                    let id_str = parts[0];
+                    let name = parts[1];
+                    if let Some(id_hex) = id_str.strip_prefix("0x") {
+                        if let Ok(val) = u64::from_str_radix(id_hex, 16) {
+                            let monitor_id = MonitorId(val);
+                            println!("Menu: Apply Preset {} to Display {:?}", name, monitor_id);
+                            state.apply_preset(name, &monitor_id);
+                            overlay::sync_all(&mut overlays, &state, &gpu);
+                            needs_animation = calc_needs_animation(&overlays, &state);
+                            if let Some(ref t) = tray_handle {
+                                t.rebuild_menu(&state, &overlays);
+                            }
+                        }
+                    }
+                }
+            } else if let Some(name) = id.strip_prefix(MENU_ID_PRESET_DELETE_PREFIX) {
+                println!("Menu: Delete Preset {}", name);
+                state.delete_preset(name);
+                if let Some(ref t) = tray_handle {
+                    t.rebuild_menu(&state, &overlays);
+                }
+            } else if id == MENU_ID_PRESET_SAVE_CURRENT {
+                let name = format!("Preset {}", state.presets.len() + 1);
+                println!("Menu: Save Current as {}", name);
+                // Use the first display's settings as the preset
+                if let Some(first_config) = state.displays.values().next() {
+                    let settings = first_config.get_settings();
+                    state.save_preset(name, settings);
+                }
+                if let Some(ref t) = tray_handle {
+                    t.rebuild_menu(&state, &overlays);
+                }
+            } else if id == MENU_ID_PRESET_CLEAR_ALL {
+                println!("Menu: Clear All Presets");
+                state.clear_presets();
+                if let Some(ref t) = tray_handle {
+                    t.rebuild_menu(&state, &overlays);
+                }
+            } else if id == MENU_ID_RUN_BENCHMARK {
+                let _ = proxy.send_event(UserEvent::RunBenchmark);
             } else if id == MENU_ID_AUTO_START {
                 println!("Menu: Toggle Auto Start");
                 let enabled = state.toggle_auto_start();
