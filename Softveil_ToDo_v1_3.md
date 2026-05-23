@@ -302,4 +302,6 @@
     - [x] イベントループの `MainEventsCleared` ハンドラを統合し、アニメーション中もコマンドを処理 ✅
     - [x] macOS: `screencapture` CLI から `CoreGraphics` API (in-memory) へ移行し高速化 ✅
     - [x] Windows: `BitBlt` に `CAPTUREBLT` フラグを追加しオーバーレイを確実に捕捉 ✅
+    - [x] macOS: バンドル実行時の書き込み権限エラーによるクラッシュを修正 ✅
+    - [x] macOS: 不要な権限警告ダイアログの抑制（キャプチャ失敗時かつ権限不足時のみ表示） ✅
 

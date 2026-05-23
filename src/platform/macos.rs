@@ -412,10 +412,19 @@ pub fn send_notification(title: &str, subtitle: &str, body: &str) {
 
 use core_graphics::display::CGDisplay;
 use image::{RgbaImage, Rgba};
+use std::sync::atomic::{AtomicBool, Ordering};
+
+static HAS_SHOWN_PERMISSION_ALERT: AtomicBool = AtomicBool::new(false);
 
 pub fn capture_display(monitor_id: &MonitorId) -> Result<DynamicImage, String> {
     let display_id = if monitor_id.0 == 0 {
-        CGDisplay::main().id
+        unsafe {
+            #[link(name = "CoreGraphics", kind = "framework")]
+            extern "C" {
+                fn CGMainDisplayID() -> u32;
+            }
+            CGMainDisplayID()
+        }
     } else {
         monitor_id.0 as u32
     };
@@ -423,15 +432,24 @@ pub fn capture_display(monitor_id: &MonitorId) -> Result<DynamicImage, String> {
     let image = match CGDisplay::new(display_id).image() {
         Some(img) => img,
         None => {
-            if !has_screen_capture_access() {
-                show_error_dialog(
-                    "「画面収録」の許可が必要です",
-                    "画面のキャプチャ（ベンチマーク）に失敗しました。システム設定の「プライバシーとセキュリティ > 画面収録」で Softveil が許可されているか確認してください。"
-                );
+            // Only show the permission alert if we haven't shown it this session
+            // AND we actually lack access.
+            if !HAS_SHOWN_PERMISSION_ALERT.load(Ordering::Relaxed) {
+                if !has_screen_capture_access() {
+                    show_error_dialog(
+                        "「画面収録」の許可が必要です",
+                        "画面のキャプチャ（ベンチマーク）に失敗しました。システム設定の「プライバシーとセキュリティ > 画面収録」で Softveil が許可されているか確認してください。"
+                    );
+                    HAS_SHOWN_PERMISSION_ALERT.store(true, Ordering::Relaxed);
+                }
             }
             return Err(format!("Failed to capture display {}", display_id));
         }
     };
+    
+    // If we succeeded, we clearly have access (or the OS is letting us anyway)
+    // so we don't need to show the alert later if a single frame fails.
+    // However, it's safer to just let the logic above handle it.
 
     let width = image.width();
     let height = image.height();
@@ -442,10 +460,17 @@ pub fn capture_display(monitor_id: &MonitorId) -> Result<DynamicImage, String> {
     // CGImage from CGDisplayCreateImage is typically 32bpp BGRA on macOS.
     let mut rgba = RgbaImage::new(width as u32, height as u32);
     
+    // Safety check for data length
+    if raw_data.len() < height * bytes_per_row {
+        return Err("Incomplete display data".to_string());
+    }
+
     for (y, row) in raw_data.chunks_exact(bytes_per_row).take(height).enumerate() {
-        for (x, pixel) in row.chunks_exact(4).take(width).enumerate() {
-            // BGRA -> RGBA
-            rgba.put_pixel(x as u32, y as u32, Rgba([pixel[2], pixel[1], pixel[0], pixel[3]]));
+        if row.len() >= width * 4 {
+            for (x, pixel) in row.chunks_exact(4).take(width).enumerate() {
+                // BGRA -> RGBA
+                rgba.put_pixel(x as u32, y as u32, Rgba([pixel[2], pixel[1], pixel[0], pixel[3]]));
+            }
         }
     }
 

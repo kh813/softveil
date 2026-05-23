@@ -10,9 +10,9 @@ use std::io::{self, Write};
 pub fn run_benchmark(gpu: Arc<GpuContext>, mut state: AppState, overlays: &mut Vec<OverlayWindow>) {
     println!("Starting Lightweight Mechanical Benchmark...");
     
-    let results_dir = "benchmark_results";
-    if let Err(e) = fs::create_dir_all(results_dir) {
-        eprintln!("Failed to create results directory: {:?}", e);
+    let results_dir = get_benchmark_results_dir();
+    if let Err(e) = fs::create_dir_all(&results_dir) {
+        eprintln!("Failed to create results directory {:?}: {:?}", results_dir, e);
         return;
     }
 
@@ -92,7 +92,8 @@ pub fn run_benchmark(gpu: Arc<GpuContext>, mut state: AppState, overlays: &mut V
                 // Save simulation as JPEG (much faster than PNG)
                 print!(" Simulating Oblique...");
                 io::stdout().flush().unwrap();
-                let simulated_path = format!("{}/simulated_{:x}_{:?}_{:.1}.jpg", results_dir, test_monitor_id.0, mode, alpha);
+                let simulated_path_buf = results_dir.join(format!("simulated_{:x}_{:?}_{:.1}.jpg", test_monitor_id.0, mode, alpha));
+                let simulated_path = simulated_path_buf.to_string_lossy();
                 simulate_oblique_view_to_jpg(&img, &simulated_path);
 
                 println!(" Done. (Score: {:.2})", obfuscation);
@@ -121,7 +122,12 @@ pub fn run_benchmark(gpu: Arc<GpuContext>, mut state: AppState, overlays: &mut V
         }
     }
 
-    fs::write("BENCHMARK_REPORT.md", report).expect("Failed to write report");
+    let report_path = results_dir.join("BENCHMARK_REPORT.md");
+    if let Err(e) = fs::write(&report_path, report) {
+        eprintln!("Failed to write report to {:?}: {:?}", report_path, e);
+    } else {
+        println!("Benchmark report saved to: {:?}", report_path);
+    }
 }
 
 pub fn propose_recommended_presets_for_monitor(state: &mut AppState, opt_period: f32, opt_cover: f32, monitor_name: &str) {
@@ -258,8 +264,9 @@ pub fn run_benchmark_threaded(
 ) {
     println!("Starting Optimized Threaded Mechanical Benchmark (Batch Mode)...");
 
-    let results_dir = "benchmark_results";
-    let _ = fs::create_dir_all(results_dir);
+    let results_dir = get_benchmark_results_dir();
+    let _ = fs::create_dir_all(&results_dir);
+    let results_dir_str = results_dir.to_string_lossy().to_string();
 
     // Helper to send command and wake up main loop
     let send_cmd = |cmd: crate::BenchmarkCommand| {
@@ -320,13 +327,13 @@ pub fn run_benchmark_threaded(
                         Ok(img) => {
                             let mode = *mode;
                             let alpha = *alpha;
-                            let results_dir = results_dir.to_string(); // move to thread
+                            let results_dir_str = results_dir_str.clone(); // move to thread
                             let handle = std::thread::spawn(move || {
                                 let (w, h) = img.dimensions();
                                 let small_img = img.thumbnail(w / 2, h / 2);
                                 let (_, obfuscation) = analyze_privacy_effect(&small_img);
                                 
-                                let simulated_path = format!("{}/simulated_{:x}_{:?}_{:.1}.jpg", results_dir, id.0, mode, alpha);
+                                let simulated_path = format!("{}/simulated_{:x}_{:?}_{:.1}.jpg", results_dir_str, id.0, mode, alpha);
                                 simulate_oblique_view_to_jpg(&small_img, &simulated_path);
                                 (id, obfuscation, format!("{:?} (Alpha {:.1})", mode, alpha))
                             });
@@ -436,6 +443,10 @@ pub fn run_benchmark_threaded(
     send_cmd(crate::BenchmarkCommand::Finished(all_new_presets, results_summary));
 }
 
+fn get_benchmark_results_dir() -> std::path::PathBuf {
+    std::env::temp_dir().join("softveil_benchmark")
+}
+
 
 fn generate_recommended_presets_for_monitor(opt_period: f32, opt_cover: f32, monitor_name: &str) -> Vec<crate::display_config::Preset> {
     use crate::display_config::{FilterSettings, Preset};
@@ -496,6 +507,8 @@ fn simulate_oblique_view_to_jpg(img: &DynamicImage, output_path: &str) {
     
     // Save as JPEG with 80% quality for extreme speed in debug mode
     let rgb = DynamicImage::ImageRgba8(simulated).to_rgb8();
-    rgb.save_with_format(output_path, image::ImageFormat::Jpeg).expect("Failed to save JPEG");
+    if let Err(e) = rgb.save_with_format(output_path, image::ImageFormat::Jpeg) {
+        eprintln!("Failed to save simulated image to {}: {:?}", output_path, e);
+    }
 }
 
