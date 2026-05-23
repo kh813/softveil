@@ -281,6 +281,14 @@ fn main() {
                     needs_animation = calc_needs_animation(&overlays, &state);
                 }
             Event::UserEvent(UserEvent::RunBenchmark) => {
+                #[cfg(target_os = "macos")]
+                if !platform::has_screen_capture_access() {
+                    platform::show_error_dialog(
+                        "「画面収録」の許可が必要です",
+                        "画面を最適化（ベンチマーク）するには、システム設定の「プライバシーとセキュリティ > 画面収録」で Softveil を許可してください。"
+                    );
+                    return;
+                }
                 println!("Starting benchmark from UI...");
                 let monitor_info: Vec<(MonitorId, String)> = overlays.iter()
                     .map(|o| (o.monitor_id, o.monitor_name.clone()))

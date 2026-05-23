@@ -405,12 +405,16 @@ pub fn capture_display(monitor_id: &MonitorId) -> Result<DynamicImage, String> {
         cmd.arg("-D").arg(monitor_id.0.to_string());
     }
     
+    cmd.arg(path);
+    
     let output = cmd.output().map_err(|e| e.to_string())?;
     
     if output.status.success() {
-        let img = image::open(path).map_err(|e| e.to_string())?;
+        let img = image::open(path).map_err(|e| format!("Failed to open captured image: {}", e))?;
+        let _ = std::fs::remove_file(path);
         Ok(img)
     } else {
-        Err("screencapture failed".to_string())
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        Err(format!("screencapture failed: {}", stderr))
     }
 }

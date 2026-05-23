@@ -74,8 +74,8 @@ pub fn run_benchmark(gpu: Arc<GpuContext>, mut state: AppState, overlays: &mut V
                 io::stdout().flush().unwrap();
                 let mut img = match crate::platform::capture_display(&test_monitor_id) {
                     Ok(i) => i,
-                    Err(_e) => {
-                        println!(" Error!");
+                    Err(e) => {
+                        println!(" Error: {}", e);
                         continue;
                     }
                 };
@@ -316,20 +316,25 @@ pub fn run_benchmark_threaded(
                 // Process results in parallel (simple threading for each monitor)
                 let mut handles = Vec::new();
                 for (id, img_res) in results {
-                    if let Ok(img) = img_res {
-                        let mode = *mode;
-                        let alpha = *alpha;
-                        let results_dir = results_dir.to_string(); // move to thread
-                        let handle = std::thread::spawn(move || {
-                            let (w, h) = img.dimensions();
-                            let small_img = img.thumbnail(w / 2, h / 2);
-                            let (_, obfuscation) = analyze_privacy_effect(&small_img);
-                            
-                            let simulated_path = format!("{}/simulated_{:x}_{:?}_{:.1}.jpg", results_dir, id.0, mode, alpha);
-                            simulate_oblique_view_to_jpg(&small_img, &simulated_path);
-                            (id, obfuscation, format!("{:?} (Alpha {:.1})", mode, alpha))
-                        });
-                        handles.push(handle);
+                    match img_res {
+                        Ok(img) => {
+                            let mode = *mode;
+                            let alpha = *alpha;
+                            let results_dir = results_dir.to_string(); // move to thread
+                            let handle = std::thread::spawn(move || {
+                                let (w, h) = img.dimensions();
+                                let small_img = img.thumbnail(w / 2, h / 2);
+                                let (_, obfuscation) = analyze_privacy_effect(&small_img);
+                                
+                                let simulated_path = format!("{}/simulated_{:x}_{:?}_{:.1}.jpg", results_dir, id.0, mode, alpha);
+                                simulate_oblique_view_to_jpg(&small_img, &simulated_path);
+                                (id, obfuscation, format!("{:?} (Alpha {:.1})", mode, alpha))
+                            });
+                            handles.push(handle);
+                        }
+                        Err(e) => {
+                            eprintln!("Monitor {:?} capture failed: {}", id, e);
+                        }
                     }
                 }
 
@@ -381,13 +386,18 @@ pub fn run_benchmark_threaded(
             
             if let Ok(results) = rx.recv() {
                 for (id, img_res) in results {
-                    if let Ok(img) = img_res {
-                        let (_, score) = analyze_privacy_effect(&img);
-                        if let Some(best_score) = best_params_scores.get_mut(&id) {
-                            if score > *best_score {
-                                *best_score = score;
-                                best_params.insert(id, (p, c));
+                    match img_res {
+                        Ok(img) => {
+                            let (_, score) = analyze_privacy_effect(&img);
+                            if let Some(best_score) = best_params_scores.get_mut(&id) {
+                                if score > *best_score {
+                                    *best_score = score;
+                                    best_params.insert(id, (p, c));
+                                }
                             }
+                        }
+                        Err(e) => {
+                            eprintln!("Monitor {:?} capture failed during optimization: {}", id, e);
                         }
                     }
                 }
