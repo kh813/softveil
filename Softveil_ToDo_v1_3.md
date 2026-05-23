@@ -281,3 +281,19 @@
     - [x] 画像解析処理のマルチスレッド並列化 ✅
 - [x] **ユーザーマニュアルの更新 (`MANUAL.md`)** 🔁 ✅
 
+---
+
+## Phase 12：アルゴリズム・パラメーター改善 v2.0 🧪 ✅
+
+**目的:** 実機フィードバックに基づく視覚的品質の向上と、シェーダーロジックの不備修正。
+
+- [x] **ディスプレイパラメータの適正化 (display_config.rs)** ✅
+    - [x] `NotebookFhd` / `ExternalGeneral` の `period_mm` を拡大し縞パターンを維持 ✅
+    - [x] `default_intensity` を 1.0 に変更し、標準状態で縞が見えるように改善 ✅
+- [x] **シェーダーロジックの修正・向上 (shader.wgsl)** ✅
+    - [x] `StealthLightSubpixel` (mode 6) の色差オフセット計算と RGB 出力の修正 ✅
+    - [x] `StealthLight` (mode 5) の未使用変数 `sub_x` の削除 ✅
+    - [x] `HighIntensitySPD` (mode 3) LCD のスクロール速度が設定に依存するよう修正 ✅
+    - [x] `AIOcrInterference` (mode 2) のノイズ密度と輝度を向上 ✅
+    - [x] `StealthDark` (mode 4) LCD の `glow` 強度をカテゴリ依存に調整 ✅
+

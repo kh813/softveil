@@ -56,11 +56,11 @@ impl DisplayProfile {
             DisplayCategory::NotebookFhd => Self {
                 category,
                 ppi: 157.0,
-                period_mm: 0.20,      // 1.5から0.20へ（格子を細かくしてベール化）
-                cover_ratio: 0.55,   // 0.82から0.55へ（細い縞に合わせて調整）
-                scroll_speed_mm_per_sec: 0.0, // 15.0から0.0へ（静止させてフリッカーとGPU負荷を低減）
+                period_mm: 0.50,      // 0.20 -> 0.50 (period_px ≈ 3.1px, stripe≈1.7px, gap≈1.4px)
+                cover_ratio: 0.55,
+                scroll_speed_mm_per_sec: 0.0,
                 phase_flip_hz: 0.0,
-                bidirectional: false, // Windows FHDでは格子より縦縞の方が目立たない
+                bidirectional: false,
             },
             DisplayCategory::NotebookHiDpi => Self {
                 category,
@@ -83,7 +83,7 @@ impl DisplayProfile {
             DisplayCategory::ExternalGeneral => Self {
                 category,
                 ppi: 92.0,
-                period_mm: 0.40,
+                period_mm: 0.60,     // 0.40 -> 0.60 (period_px ≈ 2.2px, stripe≈1.0px, gap≈1.2px)
                 cover_ratio: 0.45,
                 scroll_speed_mm_per_sec: 0.0,
                 phase_flip_hz: 28.0,
@@ -241,7 +241,7 @@ fn default_enabled() -> bool { true }
 fn default_alpha() -> f32 { 0.3 }
 fn default_filter_mode() -> FilterMode { FilterMode::VerticalLouver }
 fn default_panel_type() -> PanelType { PanelType::Unknown }
-fn default_intensity() -> f32 { 0.5 }
+fn default_intensity() -> f32 { 1.0 }
 
 fn default_display_category() -> DisplayCategory {
     DisplayCategory::Unknown

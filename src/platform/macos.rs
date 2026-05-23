@@ -14,6 +14,7 @@ use std::process::Command;
 use serde_json::Value;
 use std::thread;
 use std::time::Duration;
+use image::DynamicImage;
 
 #[link(name = "IOKit", kind = "framework")]
 extern "C" {

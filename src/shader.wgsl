@@ -125,8 +125,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         var alpha_main = select(alpha, min_a, is_aperture);
 
         let n_coord = floor(vec2<f32>(x, y) * 2.0); 
-        let n = stable_noise(n_coord + floor(t * 24.0));
-        let alpha_noise = select(0.0, alpha * 0.4, n > 0.85);
+        let t_step = floor(t * 8.0);
+        let n_static = stable_noise(n_coord);
+        let n_anim = stable_noise(n_coord + t_step);
+        let alpha_noise = select(0.0, alpha * 0.6, (n_static > 0.80) || (n_anim > 0.92));
         
         let final_alpha = clamp(max(alpha_main, alpha_noise), 0.0, 1.0);
         return vec4<f32>(0.0, 0.0, 0.0, final_alpha);
@@ -158,8 +160,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             let edge = 1.0;
             
             // Slow continuous scrolls (faster than before to avoid aliasing pulses)
-            let sx = t * (scroll_speed_px * 0.05 + 5.0);
-            let sy = t * (scroll_speed_px * 0.1 + 10.0);
+            let base_speed = select(3.0, 0.0, scroll_speed_px < 0.01); 
+            let sx = t * (scroll_speed_px * 0.08 + base_speed);
+            let sy = t * (scroll_speed_px * 0.15 + base_speed * 2.0);
             
             // Horizontal and Vertical louver composite
             let v_stripe = calc_louver(((x + sx) % p + p) % p, stripe_w, edge, alpha, is_light_mode);
@@ -197,7 +200,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             return vec4<f32>(0.0, 0.0, 0.0, max(alpha_main, alpha_dither));
         } else {
             // LCD: Low-Luma Contrast Collapse (LLCC)
-            let glow = 0.08 * luminance_compress; 
+            let glow = 0.12 * luminance_compress; 
             
             let p_raw = max(period_px * 0.5, 3.0);
             let p = u32(max(floor(p_raw), 3.0)); // 整数ピクセルにスナップ
@@ -211,7 +214,6 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         // ── StealthLight (Integrated Stealth Switch - Light Mode) ──
         // Optimized for light environments. High-Luma Contrast Collapse (HLCC).
         
-        let sub_x = fract(in.tex_coords.x * width); // 0.0 - 1.0 subpixel
         let subpixel_noise = stable_noise(vec2<f32>(floor(x * 3.0), floor(y))) * 0.15 * alpha;
 
         if (panel_type == 1u) {
@@ -261,10 +263,16 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let final_a = clamp(alpha_main + noise, 0.0, 1.0);
         
         // Intentional chromatic aberration effect
-        let color_offset = select(0.015, select(-0.015, 0.0, sp_idx == 1u), sp_idx == 0u) * alpha;
-        let c = clamp(veil + color_offset, 0.0, 1.0);
+        let offset_scale = 0.06 * alpha;
+        let r_offset = select(0.0, offset_scale, sp_idx == 0u);
+        let b_offset = select(0.0, -offset_scale, sp_idx == 2u);
         
-        return vec4<f32>(c, c, c, final_a);
+        return vec4<f32>(
+            clamp(veil + r_offset, 0.0, 1.0),
+            clamp(veil, 0.0, 1.0),
+            clamp(veil + b_offset, 0.0, 1.0),
+            final_a
+        );
     }
 
     return vec4<f32>(0.0, 0.0, 0.0, alpha);

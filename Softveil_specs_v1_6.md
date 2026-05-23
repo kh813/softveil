@@ -107,7 +107,7 @@
 1.  **階層化パラメータ・スタック**:
     *   **Level 1: System Default**: プログラム定数。
     *   **Level 2: Heuristic Recommended (Current)**: 画面カテゴリ（PPI, scale_factor）とパネル種別、解像度から静的ルールに基づき自動計算。
-        *   **Windows FHD (150-170 PPI)**: `period_mm = 0.20`, `scroll_speed = 0.0` (静止), `bidirectional = false` (縦縞) を推奨。
+        *   **Windows FHD (150-170 PPI)**: `period_mm = 0.50`, `scroll_speed = 0.0` (静止), `bidirectional = false` (縦縞) を推奨。
         *   **macOS Retina (220-250 PPI)**: `period_mm = 0.40`, `scroll_speed = 5.0`, `bidirectional = true` (格子) を推奨。
     *   **Level 3: Benchmark-Driven Auto-Optimization (Future)**: 実行環境でバックグラウンド・ベンチマーク（機械的評価）を行い、最も Obfuscation Index が高いパラメータを動的に選択する機能。
     *   **Level 4: Manual Override**: ユーザーによる「高度な微調整」メニューからの上書き設定。
