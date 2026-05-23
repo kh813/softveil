@@ -410,34 +410,44 @@ pub fn send_notification(title: &str, subtitle: &str, body: &str) {
     }
 }
 
+use core_graphics::display::CGDisplay;
+use image::{RgbaImage, Rgba};
+
 pub fn capture_display(monitor_id: &MonitorId) -> Result<DynamicImage, String> {
-    let path = "/tmp/softveil_bench.png";
-    let mut cmd = std::process::Command::new("screencapture");
-    cmd.arg("-x");
-    
-    if monitor_id.0 != 0 {
-        cmd.arg("-D").arg(monitor_id.0.to_string());
-    }
-    
-    cmd.arg(path);
-    
-    let output = cmd.output().map_err(|e| e.to_string())?;
-    
-    if output.status.success() {
-        let img = image::open(path).map_err(|e| format!("Failed to open captured image: {}", e))?;
-        let _ = std::fs::remove_file(path);
-        Ok(img)
+    let display_id = if monitor_id.0 == 0 {
+        CGDisplay::main().id
     } else {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        
-        // もし許可がないことが原因で失敗している可能性がある場合のみ、詳細な警告を出す
-        if !has_screen_capture_access() {
-            show_error_dialog(
-                "「画面収録」の許可が必要です",
-                "画面のキャプチャに失敗しました。システム設定の「プライバシーとセキュリティ > 画面収録」で Softveil が許可されているか確認してください。"
-            );
+        monitor_id.0 as u32
+    };
+
+    let image = match CGDisplay::new(display_id).image() {
+        Some(img) => img,
+        None => {
+            if !has_screen_capture_access() {
+                show_error_dialog(
+                    "「画面収録」の許可が必要です",
+                    "画面のキャプチャ（ベンチマーク）に失敗しました。システム設定の「プライバシーとセキュリティ > 画面収録」で Softveil が許可されているか確認してください。"
+                );
+            }
+            return Err(format!("Failed to capture display {}", display_id));
         }
-        
-        Err(format!("screencapture failed: {}", stderr))
+    };
+
+    let width = image.width();
+    let height = image.height();
+    let data = image.data();
+    let raw_data = data.bytes();
+    let bytes_per_row = image.bytes_per_row();
+
+    // CGImage from CGDisplayCreateImage is typically 32bpp BGRA on macOS.
+    let mut rgba = RgbaImage::new(width as u32, height as u32);
+    
+    for (y, row) in raw_data.chunks_exact(bytes_per_row).take(height).enumerate() {
+        for (x, pixel) in row.chunks_exact(4).take(width).enumerate() {
+            // BGRA -> RGBA
+            rgba.put_pixel(x as u32, y as u32, Rgba([pixel[2], pixel[1], pixel[0], pixel[3]]));
+        }
     }
+
+    Ok(DynamicImage::ImageRgba8(rgba))
 }

@@ -230,8 +230,9 @@ fn main() {
         };
 
         match event {
-            Event::MainEventsCleared
-                if needs_animation => {
+            Event::MainEventsCleared => {
+                // 1. Handle animation if needed
+                if needs_animation {
                     let now = std::time::Instant::now();
                     // 16ms (60fps) 以上経過していたら描画する
                     // モードによっては 33ms (30fps) でも良いが、まずは一律 60fps 上限とする
@@ -245,6 +246,68 @@ fn main() {
                         }
                     }
                 }
+
+                // 2. Handle commands from benchmark thread
+                while let Ok(cmd) = bench_cmd_rx.try_recv() {
+                    match cmd {
+                        BenchmarkCommand::Sync => {
+                            overlay::sync_all(&mut overlays, &state, &gpu);
+                            if let Some(ref tx) = current_bench_resp_tx {
+                                let _ = tx.send(());
+                            }
+                        }
+                        BenchmarkCommand::Capture(id, tx) => {
+                            let res = platform::capture_display(&id);
+                            let _ = tx.send(res);
+                        }
+                        BenchmarkCommand::CaptureBatch(ids, tx) => {
+                            let mut results = Vec::new();
+                            for id in ids {
+                                let res = platform::capture_display(&id);
+                                results.push((id, res));
+                            }
+                            let _ = tx.send(results);
+                        }
+                        BenchmarkCommand::SetTestSettings(id, mode, alpha, period, cover, speed) => {
+                            state.set_filter_mode(&id, mode);
+                            state.set_display_alpha(&id, alpha);
+                            state.set_override_period(&id, period);
+                            state.set_override_cover_ratio(&id, cover);
+                            state.set_override_scroll_speed(&id, speed);
+                            overlay::sync_all(&mut overlays, &state, &gpu);
+                            if let Some(ref tx) = current_bench_resp_tx {
+                                let _ = tx.send(());
+                            }
+                        }
+                        BenchmarkCommand::SetBatchSettings(batch) => {
+                            for (id, mode, alpha, period, cover, speed) in batch {
+                                state.set_filter_mode(&id, mode);
+                                state.set_display_alpha(&id, alpha);
+                                state.set_override_period(&id, period);
+                                state.set_override_cover_ratio(&id, cover);
+                                state.set_override_scroll_speed(&id, speed);
+                            }
+                            overlay::sync_all(&mut overlays, &state, &gpu);
+                            if let Some(ref tx) = current_bench_resp_tx {
+                                let _ = tx.send(());
+                            }
+                        }
+                        BenchmarkCommand::Progress(progress, message) => {
+                            let _ = proxy.send_event(UserEvent::BenchmarkProgress(progress, message));
+                        }
+                        BenchmarkCommand::Finished(new_presets, summary) => {
+                            println!("Benchmark finished. Received {} new presets.", new_presets.len());
+                            for preset in new_presets {
+                                state.save_preset(preset.name, preset.settings);
+                            }
+                            if let Some(ref t) = tray_handle {
+                                t.rebuild_menu(&state, &overlays);
+                            }
+                            let _ = proxy.send_event(UserEvent::BenchmarkFinished(summary));
+                        }
+                    }
+                }
+            }
             Event::RedrawRequested(window_id)
                 // Pollモード中はMainEventsClearedで描画するため不要
                 if !needs_animation => {
@@ -419,68 +482,6 @@ fn main() {
                     needs_animation = calc_needs_animation(&overlays, &state);
                     if let Some(ref t) = tray_handle {
                         t.rebuild_menu(&state, &overlays);
-                    }
-                }
-            }
-            Event::MainEventsCleared => {
-                // Handle commands from benchmark thread
-                while let Ok(cmd) = bench_cmd_rx.try_recv() {
-                    match cmd {
-                        BenchmarkCommand::Sync => {
-                            overlay::sync_all(&mut overlays, &state, &gpu);
-                            if let Some(ref tx) = current_bench_resp_tx {
-                                let _ = tx.send(());
-                            }
-                        }
-                        BenchmarkCommand::Capture(id, tx) => {
-                            let res = platform::capture_display(&id);
-                            let _ = tx.send(res);
-                        }
-                        BenchmarkCommand::CaptureBatch(ids, tx) => {
-                            let mut results = Vec::new();
-                            for id in ids {
-                                let res = platform::capture_display(&id);
-                                results.push((id, res));
-                            }
-                            let _ = tx.send(results);
-                        }
-                        BenchmarkCommand::SetTestSettings(id, mode, alpha, period, cover, speed) => {
-                            state.set_filter_mode(&id, mode);
-                            state.set_display_alpha(&id, alpha);
-                            state.set_override_period(&id, period);
-                            state.set_override_cover_ratio(&id, cover);
-                            state.set_override_scroll_speed(&id, speed);
-                            overlay::sync_all(&mut overlays, &state, &gpu);
-                            if let Some(ref tx) = current_bench_resp_tx {
-                                let _ = tx.send(());
-                            }
-                        }
-                        BenchmarkCommand::SetBatchSettings(batch) => {
-                            for (id, mode, alpha, period, cover, speed) in batch {
-                                state.set_filter_mode(&id, mode);
-                                state.set_display_alpha(&id, alpha);
-                                state.set_override_period(&id, period);
-                                state.set_override_cover_ratio(&id, cover);
-                                state.set_override_scroll_speed(&id, speed);
-                            }
-                            overlay::sync_all(&mut overlays, &state, &gpu);
-                            if let Some(ref tx) = current_bench_resp_tx {
-                                let _ = tx.send(());
-                            }
-                        }
-                        BenchmarkCommand::Progress(progress, message) => {
-                            let _ = proxy.send_event(UserEvent::BenchmarkProgress(progress, message));
-                        }
-                        BenchmarkCommand::Finished(new_presets, summary) => {
-                            println!("Benchmark finished. Received {} new presets.", new_presets.len());
-                            for preset in new_presets {
-                                state.save_preset(preset.name, preset.settings);
-                            }
-                            if let Some(ref t) = tray_handle {
-                                t.rebuild_menu(&state, &overlays);
-                            }
-                            let _ = proxy.send_event(UserEvent::BenchmarkFinished(summary));
-                        }
                     }
                 }
             }

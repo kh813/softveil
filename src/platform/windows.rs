@@ -428,7 +428,7 @@ pub fn capture_display(monitor_id: &MonitorId) -> std::result::Result<DynamicIma
         let h_old_obj = SelectObject(hdc_mem, h_bitmap as HGDIOBJ);
 
         // キャプチャ実行
-        BitBlt(hdc_mem, 0, 0, width, height, hdc_screen, 0, 0, SRCCOPY);
+        BitBlt(hdc_mem, 0, 0, width, height, hdc_screen, 0, 0, SRCCOPY | CAPTUREBLT);
 
         // ビットマップデータを取得
         let mut bmi: BITMAPINFO = std::mem::zeroed();

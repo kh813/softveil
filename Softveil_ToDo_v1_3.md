@@ -298,4 +298,8 @@
     - [x] `HighIntensitySPD` (mode 3) LCD のスクロール速度が設定に依存するよう修正 ✅
     - [x] `AIOcrInterference` (mode 2) のノイズ密度と輝度を向上 ✅
     - [x] `StealthDark` (mode 4) LCD の `glow` 強度をカテゴリ依存に調整 ✅
+- [x] **ベンチマーク機能の信頼性向上とデッドロック解消** 🔁 ✅
+    - [x] イベントループの `MainEventsCleared` ハンドラを統合し、アニメーション中もコマンドを処理 ✅
+    - [x] macOS: `screencapture` CLI から `CoreGraphics` API (in-memory) へ移行し高速化 ✅
+    - [x] Windows: `BitBlt` に `CAPTUREBLT` フラグを追加しオーバーレイを確実に捕捉 ✅
 
