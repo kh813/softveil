@@ -316,4 +316,8 @@
     - [x] 🔁 共通: プラットフォーム固有の一時ディレクトリへのログ出力機能の実装 ✅
         - macOS: `/tmp/softveil.log`
         - Windows: `C:\temp\softveil.log` (または適切な一時パス)
+- [x] **変更指示書 v2.0 に基づくパラメーター微調整 (New)** 🔁 ✅
+    - [x] MacBook Air (HiDpi): `period_mm` / `cover_ratio` 調整による縞の視認性向上 ✅
+    - [x] FHD Notebook: `scroll_speed` 有効化による OCR 対策とクロスルーバー化 ✅
+    - [x] OLED (MacBook Pro): `alpha_base` 調整による正面視認性の改善 ✅
 

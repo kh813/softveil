@@ -144,7 +144,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             let y_p = ((y + phase * 0.7) % p + p) % p;
             
             let is_slit = (x_p < p * 0.1) || (y_p < p * 0.1);
-            let alpha_base = alpha * 0.95;
+            let alpha_base = alpha * 0.88;   // 0.95 → 0.88（OLED 正面視認性を改善）
             let alpha_slit = select(alpha * 0.1, alpha * 0.25, is_light_mode);
             var alpha_main = select(alpha_base, alpha_slit, is_slit);
 

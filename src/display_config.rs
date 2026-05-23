@@ -56,18 +56,18 @@ impl DisplayProfile {
             DisplayCategory::NotebookFhd => Self {
                 category,
                 ppi: 157.0,
-                period_mm: 0.50,      // 0.20 -> 0.50 (period_px ≈ 3.1px, stripe≈1.7px, gap≈1.4px)
+                period_mm: 0.50,
                 cover_ratio: 0.55,
-                scroll_speed_mm_per_sec: 0.0,
+                scroll_speed_mm_per_sec: 10.0,   // 0.0 -> 10.0（OCR 対策有効化。IPS 残像許容内）
                 phase_flip_hz: 0.0,
-                bidirectional: false,
+                bidirectional: true,             // 横方向の覗き見保護を有効化
             },
             DisplayCategory::NotebookHiDpi => Self {
                 category,
                 ppi: 220.0,
-                period_mm: 0.40,      // 1.2から0.40へ
-                cover_ratio: 0.50,   // 0.85から0.50へ
-                scroll_speed_mm_per_sec: 5.0, // 20.0から5.0へ
+                period_mm: 0.50,      // 0.40 -> 0.50（MacBook Air 224PPI で stripe=2.4px を確保）
+                cover_ratio: 0.55,    // 0.50 -> 0.55（stripe/gap バランスを均等化）
+                scroll_speed_mm_per_sec: 5.0,
                 phase_flip_hz: 0.0,
                 bidirectional: true,
             },

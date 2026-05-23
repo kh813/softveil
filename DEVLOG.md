@@ -253,4 +253,12 @@
     - `cargo check` および `cargo build --release` において、未使用コードの整理を行い警告ゼロを達成。
     - macOS/Windows 両 OS でのクロスコンパイル成功を確認。
 
+## 2026-05-24 (Update)
+
+### Phase 12.1: パラメーター微調整 (Display Parameter Tuning)
+- **指示書 v2.0 に基づく最適化**:
+    - `NotebookHiDpi`: `period_mm` を 0.50 へ、`cover_ratio` を 0.55 へ引き上げ、MacBook Air での縞の視認性を改善。
+    - `NotebookFhd`: `scroll_speed` を 10.0mm/s に設定し OCR 対策を有効化。また `bidirectional` を true にし横方向の覗き見保護を強化。
+    - `HighIntensitySPD` (OLED): `alpha_base` を 0.88 に下げ、MacBook Pro 等の OLED パネルでの正面視認性を向上。
+
 
