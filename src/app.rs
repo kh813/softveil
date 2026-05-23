@@ -47,6 +47,7 @@ pub struct AppState {
     pub stealth_snapshot: Option<OSSettingsSnapshot>,
     pub is_stealth_light: bool,
     pub presets: Vec<Preset>,
+    pub benchmark_progress: Option<f32>,
     stored_display_settings: HashMap<String, DisplayConfig>,
 }
 
@@ -76,6 +77,7 @@ impl AppState {
             stealth_snapshot: None,
             is_stealth_light: false,
             presets: config.presets,
+            benchmark_progress: None,
             stored_display_settings: config.display_settings,
         }
     }

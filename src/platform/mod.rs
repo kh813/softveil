@@ -140,6 +140,14 @@ pub fn show_info_dialog(title: &str, message: &str) {
     windows::show_info_dialog(title, message);
 }
 
+#[allow(dead_code)]
+pub fn send_notification(title: &str, subtitle: &str, body: &str) {
+    #[cfg(target_os = "macos")]
+    macos::send_notification(title, subtitle, body);
+    #[cfg(target_os = "windows")]
+    windows::send_notification(title, subtitle, body);
+}
+
 #[cfg(target_os = "macos")]
 pub fn has_screen_capture_access() -> bool {
     return macos::has_screen_capture_access();

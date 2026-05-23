@@ -385,6 +385,11 @@ pub fn show_info_dialog(title: &str, message: &str) {
     }
 }
 
+#[allow(dead_code)]
+pub fn send_notification(_title: &str, _subtitle: &str, _body: &str) {
+    // Windows 向けの実装は将来的に追加（トレイアイコンのツールチップで代用中）
+}
+
 use image::DynamicImage;
 
 /// 画面全体（プライマリモニタ）をキャプチャして DynamicImage として返す

@@ -396,6 +396,20 @@ pub fn capture_primary_display() -> Result<DynamicImage, String> {
     capture_display(&MonitorId(0))
 }
 
+pub fn send_notification(title: &str, subtitle: &str, body: &str) {
+    let source = format!(
+        "display notification \"{}\" with title \"{}\" subtitle \"{}\"",
+        body.replace("\"", "\\\""),
+        title.replace("\"", "\\\""),
+        subtitle.replace("\"", "\\\"")
+    );
+    unsafe {
+        if let Some(script) = NSAppleScript::initWithSource(NSAppleScript::alloc(), &NSString::from_str(&source)) {
+            let _ = script.executeAndReturnError(None);
+        }
+    }
+}
+
 pub fn capture_display(monitor_id: &MonitorId) -> Result<DynamicImage, String> {
     let path = "/tmp/softveil_bench.png";
     let mut cmd = std::process::Command::new("screencapture");
@@ -415,6 +429,15 @@ pub fn capture_display(monitor_id: &MonitorId) -> Result<DynamicImage, String> {
         Ok(img)
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr);
+        
+        // もし許可がないことが原因で失敗している可能性がある場合のみ、詳細な警告を出す
+        if !has_screen_capture_access() {
+            show_error_dialog(
+                "「画面収録」の許可が必要です",
+                "画面のキャプチャに失敗しました。システム設定の「プライバシーとセキュリティ > 画面収録」で Softveil が許可されているか確認してください。"
+            );
+        }
+        
         Err(format!("screencapture failed: {}", stderr))
     }
 }

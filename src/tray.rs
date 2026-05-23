@@ -394,7 +394,12 @@ fn build_menu(state: &AppState, overlays: &[OverlayWindow]) -> Menu {
 
     let _ = presets_submenu.append(&PredefinedMenuItem::separator());
     
-    let run_benchmark_item = MenuItem::with_id(MENU_ID_RUN_BENCHMARK, "画面を最適化する (ベンチマーク)...", true, None);
+    let benchmark_label = if let Some(progress) = state.benchmark_progress {
+        format!("画面を最適化中 ({:.0}%) ...", progress * 100.0)
+    } else {
+        "画面を最適化する (ベンチマーク)...".to_string()
+    };
+    let run_benchmark_item = MenuItem::with_id(MENU_ID_RUN_BENCHMARK, benchmark_label, state.benchmark_progress.is_none(), None);
     let _ = presets_submenu.append(&run_benchmark_item);
 
     let _ = menu.append(&presets_submenu);

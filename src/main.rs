@@ -281,15 +281,14 @@ fn main() {
                     needs_animation = calc_needs_animation(&overlays, &state);
                 }
             Event::UserEvent(UserEvent::RunBenchmark) => {
-                #[cfg(target_os = "macos")]
-                if !platform::has_screen_capture_access() {
-                    platform::show_error_dialog(
-                        "「画面収録」の許可が必要です",
-                        "画面を最適化（ベンチマーク）するには、システム設定の「プライバシーとセキュリティ > 画面収録」で Softveil を許可してください。"
-                    );
-                    return;
-                }
                 println!("Starting benchmark from UI...");
+                state.benchmark_progress = Some(0.0);
+                if let Some(ref t) = tray_handle {
+                    t.rebuild_menu(&state, &overlays);
+                }
+
+                platform::send_notification("Softveil", "ベンチマーク開始", "画面の最適化測定を開始しました。完了までしばらくお待ちください。");
+                
                 let monitor_info: Vec<(MonitorId, String)> = overlays.iter()
                     .map(|o| (o.monitor_id, o.monitor_name.clone()))
                     .collect();
@@ -316,14 +315,28 @@ fn main() {
             }
             Event::UserEvent(UserEvent::BenchmarkProgress(progress, ref message)) => {
                 println!("Benchmark Progress: {:.0}% - {}", progress * 100.0, message);
+                let _old_progress = state.benchmark_progress.unwrap_or(0.0);
+                state.benchmark_progress = Some(progress);
+                
                 if let Some(ref t) = tray_handle {
                     t.set_tooltip(&format!("Softveil (ベンチマーク中: {:.0}%)", progress * 100.0));
+                    t.rebuild_menu(&state, &overlays);
+                }
+
+                // 25% ごとに通知
+                if (progress * 4.0).floor() > (_old_progress * 4.0).floor() {
+                    platform::send_notification("Softveil", "最適化進行中", &format!("進捗: {:.0}%", progress * 100.0));
                 }
             }
             Event::UserEvent(UserEvent::BenchmarkFinished(ref summary)) => {
+                state.benchmark_progress = None;
                 if let Some(ref t) = tray_handle {
                     t.set_tooltip("Softveil");
+                    t.rebuild_menu(&state, &overlays);
                 }
+
+                platform::send_notification("Softveil", "最適化完了", "全モニターの性能測定が完了しました。");
+                
                 crate::platform::show_info_dialog(
                     "最適化完了 / Optimization Complete",
                     &format!("全モニターの性能測定と最適化が完了しました。\n\n【結果の要約】\n{}\n\n設定プリセットメニューから適用可能です。", summary)
