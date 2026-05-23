@@ -140,6 +140,13 @@ pub fn show_info_dialog(title: &str, message: &str) {
     windows::show_info_dialog(title, message);
 }
 
+pub fn write_to_log_file(msg: &str) {
+    #[cfg(target_os = "macos")]
+    macos::write_to_log_file(msg);
+    #[cfg(target_os = "windows")]
+    windows::write_to_log_file(msg);
+}
+
 #[allow(dead_code)]
 pub fn send_notification(title: &str, subtitle: &str, body: &str) {
     #[cfg(target_os = "macos")]

@@ -1,6 +1,7 @@
 use crate::app::AppState;
 use crate::display_config::{FilterMode, MonitorId};
 use crate::overlay::{GpuContext, OverlayWindow};
+use crate::logger;
 use std::sync::Arc;
 use std::time::Duration;
 use image::{DynamicImage, GenericImageView, RgbaImage};
@@ -8,17 +9,17 @@ use std::fs;
 use std::io::{self, Write};
 
 pub fn run_benchmark(gpu: Arc<GpuContext>, mut state: AppState, overlays: &mut Vec<OverlayWindow>) {
-    println!("Starting Lightweight Mechanical Benchmark...");
+    logger!("Starting Lightweight Mechanical Benchmark...");
     
     let results_dir = get_benchmark_results_dir();
     if let Err(e) = fs::create_dir_all(&results_dir) {
-        eprintln!("Failed to create results directory {:?}: {:?}", results_dir, e);
+        logger!("Failed to create results directory {:?}: {:?}", results_dir, e);
         return;
     }
 
     let monitor_ids: Vec<MonitorId> = overlays.iter().map(|o| o.monitor_id).collect();
     if monitor_ids.is_empty() {
-        println!("No monitors found for benchmark.");
+        logger!("No monitors found for benchmark.");
         return;
     }
     
@@ -124,9 +125,9 @@ pub fn run_benchmark(gpu: Arc<GpuContext>, mut state: AppState, overlays: &mut V
 
     let report_path = results_dir.join("BENCHMARK_REPORT.md");
     if let Err(e) = fs::write(&report_path, report) {
-        eprintln!("Failed to write report to {:?}: {:?}", report_path, e);
+        logger!("Failed to write report to {:?}: {:?}", report_path, e);
     } else {
-        println!("Benchmark report saved to: {:?}", report_path);
+        logger!("Benchmark report saved to: {:?}", report_path);
     }
 }
 
@@ -262,10 +263,12 @@ pub fn run_benchmark_threaded(
     original_settings: std::collections::HashMap<MonitorId, crate::display_config::FilterSettings>,
     proxy: tao::event_loop::EventLoopProxy<crate::UserEvent>,
 ) {
-    println!("Starting Optimized Threaded Mechanical Benchmark (Batch Mode)...");
+    logger!("Starting Optimized Threaded Mechanical Benchmark (Batch Mode)...");
 
     let results_dir = get_benchmark_results_dir();
-    let _ = fs::create_dir_all(&results_dir);
+    if let Err(e) = fs::create_dir_all(&results_dir) {
+        logger!("CRITICAL: Failed to create results directory {:?}: {:?}", results_dir, e);
+    }
     let results_dir_str = results_dir.to_string_lossy().to_string();
 
     // Helper to send command and wake up main loop
@@ -298,6 +301,7 @@ pub fn run_benchmark_threaded(
         for alpha in &alphas {
             current_step += 1;
             let progress = current_step as f32 / total_steps as f32;
+            logger!("Benchmark Step: {:?} / Alpha {:.1} ({:.0}%)", mode, alpha, progress * 100.0);
             send_cmd(crate::BenchmarkCommand::Progress(
                 progress,
                 format!("全モニターを測定中... ({:?} / Alpha {:.1})", mode, alpha)
@@ -309,7 +313,11 @@ pub fn run_benchmark_threaded(
                 batch.push((*id, *mode, *alpha, None, None, None));
             }
             send_cmd(crate::BenchmarkCommand::SetBatchSettings(batch));
-            let _ = resp_rx.recv();
+            
+            if let Err(e) = resp_rx.recv_timeout(Duration::from_secs(10)) {
+                logger!("ERROR: Timed out waiting for sync in Step {:?}: {:?}", mode, e);
+                continue;
+            }
 
             let wait_ms = if matches!(mode, FilterMode::StealthDark | FilterMode::StealthLight) { 2000 } else { 800 };
             std::thread::sleep(Duration::from_millis(wait_ms));
@@ -319,48 +327,53 @@ pub fn run_benchmark_threaded(
             let monitor_ids: Vec<MonitorId> = monitor_info.iter().map(|(id, _)| *id).collect();
             send_cmd(crate::BenchmarkCommand::CaptureBatch(monitor_ids, tx));
             
-            if let Ok(results) = rx.recv() {
-                // Process results in parallel (simple threading for each monitor)
-                let mut handles = Vec::new();
-                for (id, img_res) in results {
-                    match img_res {
-                        Ok(img) => {
-                            let mode = *mode;
-                            let alpha = *alpha;
-                            let results_dir_str = results_dir_str.clone(); // move to thread
-                            let handle = std::thread::spawn(move || {
-                                let (w, h) = img.dimensions();
-                                let small_img = img.thumbnail(w / 2, h / 2);
-                                let (_, obfuscation) = analyze_privacy_effect(&small_img);
-                                
-                                let simulated_path = format!("{}/simulated_{:x}_{:?}_{:.1}.jpg", results_dir_str, id.0, mode, alpha);
-                                simulate_oblique_view_to_jpg(&small_img, &simulated_path);
-                                (id, obfuscation, format!("{:?} (Alpha {:.1})", mode, alpha))
-                            });
-                            handles.push(handle);
-                        }
-                        Err(e) => {
-                            eprintln!("Monitor {:?} capture failed: {}", id, e);
-                        }
-                    }
-                }
-
-                for h in handles {
-                    if let Ok((id, score, label)) = h.join() {
-                        if let Some(stats) = monitor_stats.get_mut(&id) {
-                            if score > stats.1 {
-                                stats.1 = score;
-                                stats.2 = label;
+            match rx.recv_timeout(Duration::from_secs(10)) {
+                Ok(results) => {
+                    // Process results in parallel (simple threading for each monitor)
+                    let mut handles = Vec::new();
+                    for (id, img_res) in results {
+                        match img_res {
+                            Ok(img) => {
+                                let mode = *mode;
+                                let alpha = *alpha;
+                                let results_dir_str = results_dir_str.clone(); // move to thread
+                                let handle = std::thread::spawn(move || {
+                                    let (w, h) = img.dimensions();
+                                    let small_img = img.thumbnail(w / 2, h / 2);
+                                    let (_, obfuscation) = analyze_privacy_effect(&small_img);
+                                    
+                                    let simulated_path = format!("{}/simulated_{:x}_{:?}_{:.1}.jpg", results_dir_str, id.0, mode, alpha);
+                                    simulate_oblique_view_to_jpg(&small_img, &simulated_path);
+                                    (id, obfuscation, format!("{:?} (Alpha {:.1})", mode, alpha))
+                                });
+                                handles.push(handle);
+                            }
+                            Err(e) => {
+                                logger!("Monitor {:?} capture failed: {}", id, e);
                             }
                         }
                     }
+
+                    for h in handles {
+                        if let Ok((id, score, label)) = h.join() {
+                            if let Some(stats) = monitor_stats.get_mut(&id) {
+                                if score > stats.1 {
+                                    stats.1 = score;
+                                    stats.2 = label;
+                                }
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    logger!("ERROR: Timed out waiting for capture results: {:?}", e);
                 }
             }
         }
     }
     
     // --- Part 2: Auto-Optimization Search (Batched) ---
-    println!("Running Batched Auto-Optimization search...");
+    logger!("Running Batched Auto-Optimization search...");
     let periods = [0.15, 0.20, 0.30, 0.40];
     let covers = [0.50, 0.70, 0.85];
     
@@ -374,6 +387,7 @@ pub fn run_benchmark_threaded(
         for &c in &covers {
             current_step += 1;
             let progress = current_step as f32 / total_steps as f32;
+            logger!("Optimization Step: P={:.2} C={:.0}% ({:.0}%)", p, c * 100.0, progress * 100.0);
             send_cmd(crate::BenchmarkCommand::Progress(
                 progress,
                 format!("全モニターの最適化パラメータを探索中... (P={:.2} C={:.0}%)", p, c * 100.0)
@@ -384,14 +398,17 @@ pub fn run_benchmark_threaded(
                 batch.push((*id, FilterMode::HighIntensitySPD, 0.3, Some(p), Some(c), None));
             }
             send_cmd(crate::BenchmarkCommand::SetBatchSettings(batch));
-            let _ = resp_rx.recv();
+            if let Err(e) = resp_rx.recv_timeout(Duration::from_secs(10)) {
+                logger!("ERROR: Timed out waiting for sync in Optimization Step: {:?}", e);
+                continue;
+            }
             std::thread::sleep(Duration::from_millis(500));
             
             let (tx, rx) = std::sync::mpsc::channel();
             let monitor_ids: Vec<MonitorId> = monitor_info.iter().map(|(id, _)| *id).collect();
             send_cmd(crate::BenchmarkCommand::CaptureBatch(monitor_ids, tx));
             
-            if let Ok(results) = rx.recv() {
+            if let Ok(results) = rx.recv_timeout(Duration::from_secs(10)) {
                 for (id, img_res) in results {
                     match img_res {
                         Ok(img) => {
@@ -404,10 +421,12 @@ pub fn run_benchmark_threaded(
                             }
                         }
                         Err(e) => {
-                            eprintln!("Monitor {:?} capture failed during optimization: {}", id, e);
+                            logger!("Monitor {:?} capture failed during optimization: {}", id, e);
                         }
                     }
                 }
+            } else {
+                logger!("ERROR: Timed out waiting for capture results during optimization");
             }
         }
     }
@@ -433,13 +452,15 @@ pub fn run_benchmark_threaded(
     }
 
     // Restore original settings
+    logger!("Restoring original settings...");
     for (id, settings) in original_settings {
         send_cmd(crate::BenchmarkCommand::SetTestSettings(
             id, settings.filter_mode, settings.alpha, settings.override_period_mm, settings.override_cover_ratio, settings.override_scroll_speed
         ));
-        let _ = resp_rx.recv();
+        let _ = resp_rx.recv_timeout(Duration::from_secs(5));
     }
 
+    logger!("Benchmark finished successfully.");
     send_cmd(crate::BenchmarkCommand::Finished(all_new_presets, results_summary));
 }
 

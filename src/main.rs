@@ -10,6 +10,9 @@ mod hotkey;
 mod ai_detection;
 mod benchmark;
 
+#[cfg(test)]
+mod tests;
+
 use app::AppState;
 use display_config::{MonitorId, DisplayConfig, DisconnectedCache, FilterMode, DisplayCategory};
 use tray::{
@@ -50,7 +53,17 @@ pub enum BenchmarkCommand {
     Finished(Vec<crate::display_config::Preset>, String),
 }
 
+#[macro_export]
+macro_rules! logger {
+    ($($arg:tt)*) => {
+        let msg = format!($($arg)*);
+        println!("{}", msg);
+        $crate::platform::write_to_log_file(&msg);
+    }
+}
+
 fn main() {
+    logger!("--- Softveil Starting ---");
     let args: Vec<String> = std::env::args().collect();
     let is_benchmark = args.contains(&"--benchmark".to_string());
 
@@ -84,14 +97,11 @@ fn main() {
     #[cfg(target_os = "macos")]
     {
         if !platform::has_screen_capture_access() {
-            println!("Screen capture access is not granted. Advanced Phase 5 features will be limited.");
-            // We could show the dialog here, but to be even less intrusive, 
-            // maybe we only show it when a feature is selected.
-            // For now, let's keep it in console to satisfy "not every time" 
-            // and prepare for feature-gated prompts.
+            logger!("Screen capture access is not granted. Advanced Phase 5 features will be limited.");
+        } else {
+            logger!("Screen capture access is granted.");
         }
     }
-
     let gpu = match pollster::block_on(overlay::GpuContext::new()) {
         Some(ctx) => std::sync::Arc::new(ctx),
         None => {
@@ -344,7 +354,7 @@ fn main() {
                     needs_animation = calc_needs_animation(&overlays, &state);
                 }
             Event::UserEvent(UserEvent::RunBenchmark) => {
-                println!("Starting benchmark from UI...");
+                logger!("Starting benchmark from UI...");
                 state.benchmark_progress = Some(0.0);
                 if let Some(ref t) = tray_handle {
                     t.rebuild_menu(&state, &overlays);
@@ -560,31 +570,19 @@ fn main() {
                             if let Some(m) = mode {
                                 println!("Menu: Set Display {:?} Filter Mode {:?}", monitor_id, m);
 
-                                #[cfg(target_os = "macos")]
-                                {
-                                    // Check if we need screen capture permission for the selected mode.
-                                    // Even though AI OCR Interference is currently procedural, it's marked as a Phase 5 feature 
-                                    // that will eventually include Semantic Privacy analysis.
-                                    if m == FilterMode::AIOcrInterference && !platform::has_screen_capture_access() {
-                                        platform::macos::show_permission_alert(
-                                            "「画面収録」の許可が必要です",
-                                            "AI OCR 妨害機能の一部（高度な解析）を利用するには、システム設定の「プライバシーとセキュリティ > 画面収録」で Softveil を許可してください。"
-                                        );
-                                    }
-                                }
-
                                 state.set_filter_mode(&monitor_id, m);
                                 state.save();
                                 overlay::sync_all(&mut overlays, &state, &gpu);
                                 needs_animation = calc_needs_animation(&overlays, &state);
-                                if let Some(ref t) = tray_handle {
-                                    t.rebuild_menu(&state, &overlays);
-                                }
-                            }
-                        }
-                    }
-                }
+                                 if let Some(ref t) = tray_handle {
+                                     t.rebuild_menu(&state, &overlays);
+                                 }
+                             }
+                         }
+                     }
+                 }
             } else if let Some(rest) = id.strip_prefix(MENU_ID_CATEGORY_PREFIX) {
+
                 let parts: Vec<&str> = rest.split(':').collect();
                 if parts.len() == 2 {
                     let id_str = parts[0];

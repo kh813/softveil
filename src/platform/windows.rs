@@ -385,6 +385,20 @@ pub fn show_info_dialog(title: &str, message: &str) {
     }
 }
 
+pub fn write_to_log_file(msg: &str) {
+    use std::fs::OpenOptions;
+    use std::io::Write;
+    let mut path = std::env::temp_dir();
+    path.push("softveil.log");
+    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let _ = writeln!(file, "[{}] {}", now, msg);
+    }
+}
+
 #[allow(dead_code)]
 pub fn send_notification(_title: &str, _subtitle: &str, _body: &str) {
     // Windows 向けの実装は将来的に追加（トレイアイコンのツールチップで代用中）

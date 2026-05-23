@@ -1,5 +1,6 @@
 use tao::monitor::MonitorHandle;
 use tao::window::Window;
+use crate::logger;
 use tao::platform::macos::MonitorHandleExtMacOS;
 use tao::platform::macos::WindowExtMacOS;
 use crate::display_config::{MonitorId, PanelType};
@@ -298,11 +299,34 @@ pub fn detect_panel_type(monitor: &MonitorHandle) -> PanelType {
 }
 
 pub fn has_screen_capture_access() -> bool {
+    // macOS 10.15+ (Catalina and later)
     #[link(name = "CoreGraphics", kind = "framework")]
     extern "C" {
         fn CGPreflightScreenCaptureAccess() -> bool;
     }
-    unsafe { CGPreflightScreenCaptureAccess() }
+    unsafe {
+        // CGPreflightScreenCaptureAccess can sometimes return false negatives.
+        // If we are already running and have successfully captured before, 
+        // we might want to return true here to avoid redundant checks.
+        // For now, let's keep it but be aware of its limitations.
+        if CGPreflightScreenCaptureAccess() {
+            return true;
+        }
+        
+        // As a fallback, if we already showed the alert and the user said OK,
+        // we might be in a state where it returns false but works.
+        HAS_SHOWN_PERMISSION_ALERT.load(Ordering::Relaxed)
+    }
+}
+
+pub fn request_screen_capture_access() -> bool {
+    #[link(name = "CoreGraphics", kind = "framework")]
+    extern "C" {
+        fn CGRequestScreenCaptureAccess() -> bool;
+    }
+    unsafe {
+        CGRequestScreenCaptureAccess()
+    }
 }
 
 pub fn is_dark_mode() -> bool {
@@ -319,7 +343,8 @@ pub fn set_dark_mode(enabled: bool) {
     );
     unsafe {
         if let Some(script) = NSAppleScript::initWithSource(NSAppleScript::alloc(), &NSString::from_str(&source)) {
-            let _ = script.executeAndReturnError(None);
+            // executeAndReturnError: expects a pointer to an NSDictionary pointer for errors.
+            let _: *mut NSObject = msg_send![&*script, executeAndReturnError: std::ptr::null_mut::<*mut NSObject>()];
         }
     }
 }
@@ -367,10 +392,6 @@ pub fn set_brightness(level: f32) {
     }
 }
 
-pub fn show_permission_alert(title: &str, message: &str) {
-    show_error_dialog(title, message);
-}
-
 pub fn show_error_dialog(title: &str, message: &str) {
     if let Some(mtm) = MainThreadMarker::new() {
         let alert = NSAlert::new(mtm);
@@ -396,6 +417,19 @@ pub fn capture_primary_display() -> Result<DynamicImage, String> {
     capture_display(&MonitorId(0))
 }
 
+pub fn write_to_log_file(msg: &str) {
+    use std::fs::OpenOptions;
+    use std::io::Write;
+    let path = "/tmp/softveil.log";
+    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let _ = writeln!(file, "[{}] {}", now, msg);
+    }
+}
+
 pub fn send_notification(title: &str, subtitle: &str, body: &str) {
     let source = format!(
         "display notification \"{}\" with title \"{}\" subtitle \"{}\"",
@@ -405,7 +439,7 @@ pub fn send_notification(title: &str, subtitle: &str, body: &str) {
     );
     unsafe {
         if let Some(script) = NSAppleScript::initWithSource(NSAppleScript::alloc(), &NSString::from_str(&source)) {
-            let _ = script.executeAndReturnError(None);
+            let _: *mut NSObject = msg_send![&*script, executeAndReturnError: std::ptr::null_mut::<*mut NSObject>()];
         }
     }
 }
@@ -432,16 +466,17 @@ pub fn capture_display(monitor_id: &MonitorId) -> Result<DynamicImage, String> {
     let image = match CGDisplay::new(display_id).image() {
         Some(img) => img,
         None => {
+            logger!("CGDisplay::image() returned None for display_id: {}", display_id);
             // Only show the permission alert if we haven't shown it this session
-            // AND we actually lack access.
             if !HAS_SHOWN_PERMISSION_ALERT.load(Ordering::Relaxed) {
-                if !has_screen_capture_access() {
+                // Use request_screen_capture_access which is more definitive
+                if !request_screen_capture_access() {
                     show_error_dialog(
                         "「画面収録」の許可が必要です",
                         "画面のキャプチャ（ベンチマーク）に失敗しました。システム設定の「プライバシーとセキュリティ > 画面収録」で Softveil が許可されているか確認してください。"
                     );
-                    HAS_SHOWN_PERMISSION_ALERT.store(true, Ordering::Relaxed);
                 }
+                HAS_SHOWN_PERMISSION_ALERT.store(true, Ordering::Relaxed);
             }
             return Err(format!("Failed to capture display {}", display_id));
         }
