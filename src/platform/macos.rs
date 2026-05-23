@@ -319,16 +319,6 @@ pub fn has_screen_capture_access() -> bool {
     }
 }
 
-pub fn request_screen_capture_access() -> bool {
-    #[link(name = "CoreGraphics", kind = "framework")]
-    extern "C" {
-        fn CGRequestScreenCaptureAccess() -> bool;
-    }
-    unsafe {
-        CGRequestScreenCaptureAccess()
-    }
-}
-
 pub fn is_dark_mode() -> bool {
     let defaults = NSUserDefaults::standardUserDefaults();
     let key = NSString::from_str("AppleInterfaceStyle");
@@ -467,15 +457,17 @@ pub fn capture_display(monitor_id: &MonitorId) -> Result<DynamicImage, String> {
         Some(img) => img,
         None => {
             logger!("CGDisplay::image() returned None for display_id: {}", display_id);
-            // Only show the permission alert if we haven't shown it this session
-            if !HAS_SHOWN_PERMISSION_ALERT.load(Ordering::Relaxed) {
-                // Use request_screen_capture_access which is more definitive
-                if !request_screen_capture_access() {
-                    show_error_dialog(
-                        "「画面収録」の許可が必要です",
-                        "画面のキャプチャ（ベンチマーク）に失敗しました。システム設定の「プライバシーとセキュリティ > 画面収録」で Softveil が許可されているか確認してください。"
-                    );
-                }
+            
+            // None is not always due to lack of permissions (can be lock screen, first frame, etc.)
+            // Check actual permission status before deciding to alert.
+            let has_permission = has_screen_capture_access();
+
+            if !has_permission && !HAS_SHOWN_PERMISSION_ALERT.load(Ordering::Relaxed) {
+                // Only show custom dialog if we actually lack permissions.
+                show_error_dialog(
+                    "「画面収録」の許可が必要です",
+                    "ベンチマーク機能には画面収録の権限が必要です。\nシステム設定 > プライバシーとセキュリティ > 画面収録 で Softveil を許可してください。",
+                );
                 HAS_SHOWN_PERMISSION_ALERT.store(true, Ordering::Relaxed);
             }
             return Err(format!("Failed to capture display {}", display_id));

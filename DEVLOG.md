@@ -261,4 +261,8 @@
     - `NotebookFhd`: `scroll_speed` を 10.0mm/s に設定し OCR 対策を有効化。また `bidirectional` を true にし横方向の覗き見保護を強化。
     - `HighIntensitySPD` (OLED): `alpha_base` を 0.88 に下げ、MacBook Pro 等の OLED パネルでの正面視認性を向上。
 
+### バグ修正: macOS 権限ダイアログの重複表示
+- **冗長なダイアログの削除**: `CGDisplay::image()` が `None` を返した際に、権限の有無に関わらず `CGRequestScreenCaptureAccess()` を呼び出していた問題を修正。
+- **判定ロジックの改善**: `None` が返った際にまず `CGPreflightScreenCaptureAccess()` で実際の権限状態を確認するようにし、権限が不足している場合のみカスタムダイアログを表示するように変更。これにより、許可済みユーザーへの不要なシステムプロンプトを排除。
+
 
