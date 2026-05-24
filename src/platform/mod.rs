@@ -155,19 +155,15 @@ pub fn send_notification(title: &str, subtitle: &str, body: &str) {
     windows::send_notification(title, subtitle, body);
 }
 
+#[cfg(target_os = "macos")]
 pub fn has_screen_capture_access() -> bool {
-    #[cfg(target_os = "macos")]
     return macos::has_screen_capture_access();
-    #[cfg(target_os = "windows")]
-    return true;
 }
 
+#[cfg(target_os = "macos")]
 #[allow(dead_code)]
 pub fn request_screen_capture_access() -> bool {
-    #[cfg(target_os = "macos")]
     return macos::request_screen_capture_access();
-    #[cfg(target_os = "windows")]
-    return true;
 }
 
 pub fn is_dark_mode() -> bool {
