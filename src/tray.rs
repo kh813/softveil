@@ -336,19 +336,35 @@ fn build_menu(state: &AppState, overlays: &[OverlayWindow]) -> (Menu, HashMap<Op
         let _ = display_menu.append(&PredefinedMenuItem::separator());
 
         // Per-display Preset Selection
-        let display_preset_submenu = Submenu::new("プリセット適用", true);
+        let display_preset_submenu = Submenu::new("設定プリセット", true);
         if state.presets.is_empty() {
              let _ = display_preset_submenu.append(&MenuItem::with_id("empty", "(プリセットなし)", false, None));
         } else {
+            let apply_submenu = Submenu::new("プリセット適用", true);
+            for preset in &state.presets {
+                let is_active = config.matches_settings(&preset.settings);
+                let item = CheckMenuItem::with_id(
+                    format!("{}{}:{}", MENU_ID_PRESET_APPLY_PREFIX, id_str, preset.name),
+                    preset.name.clone(),
+                    true,
+                    is_active,
+                    None,
+                );
+                let _ = apply_submenu.append(&item);
+            }
+            let _ = display_preset_submenu.append(&apply_submenu);
+
+            let delete_submenu = Submenu::new("プリセット削除", true);
             for preset in &state.presets {
                 let item = MenuItem::with_id(
-                    format!("{}{}:{}", MENU_ID_PRESET_APPLY_PREFIX, id_str, preset.name),
+                    format!("{}{}", MENU_ID_PRESET_DELETE_PREFIX, preset.name),
                     preset.name.clone(),
                     true,
                     None,
                 );
-                let _ = display_preset_submenu.append(&item);
+                let _ = delete_submenu.append(&item);
             }
+            let _ = display_preset_submenu.append(&delete_submenu);
         }
         let _ = display_menu.append(&display_preset_submenu);
 

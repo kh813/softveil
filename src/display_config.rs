@@ -298,6 +298,16 @@ impl DisplayConfig {
         self.override_cover_ratio = settings.override_cover_ratio;
         self.override_scroll_speed = settings.override_scroll_speed;
     }
+
+    /// 現在の設定が指定された FilterSettings と一致するかどうかを判定する
+    pub fn matches_settings(&self, settings: &FilterSettings) -> bool {
+        (self.alpha - settings.alpha).abs() < 0.01 &&
+        self.filter_mode == settings.filter_mode &&
+        (self.filter_intensity - settings.filter_intensity).abs() < 0.01 &&
+        self.override_period_mm == settings.override_period_mm &&
+        self.override_cover_ratio == settings.override_cover_ratio &&
+        self.override_scroll_speed == settings.override_scroll_speed
+    }
 }
 
 impl Default for DisplayConfig {
