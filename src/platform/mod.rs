@@ -162,6 +162,7 @@ pub fn has_screen_capture_access() -> bool {
     return true;
 }
 
+#[allow(dead_code)]
 pub fn request_screen_capture_access() -> bool {
     #[cfg(target_os = "macos")]
     return macos::request_screen_capture_access();

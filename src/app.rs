@@ -143,11 +143,6 @@ impl AppState {
         self.save();
     }
 
-    pub fn clear_presets(&mut self) {
-        self.presets.clear();
-        self.save();
-    }
-
     pub fn toggle_ai_detection(&mut self) -> bool {
         self.ai_detection_enabled = !self.ai_detection_enabled;
         if !self.ai_detection_enabled {

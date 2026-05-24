@@ -23,7 +23,6 @@ pub const MENU_ID_AI_DETECTION: &str = "ai_detection";
 pub const MENU_ID_PRESET_APPLY_PREFIX: &str = "preset_apply:";
 pub const MENU_ID_PRESET_DELETE_PREFIX: &str = "preset_delete:";
 pub const MENU_ID_PRESET_SAVE_CURRENT: &str = "preset_save_current";
-pub const MENU_ID_PRESET_CLEAR_ALL: &str = "preset_clear_all";
 pub const MENU_ID_RUN_BENCHMARK_PREFIX: &str = "run_benchmark:";
 pub const MENU_ID_RUN_BENCHMARK_ALL: &str = "run_benchmark_all";
 pub const MENU_ID_QUIT: &str = "quit";
@@ -366,6 +365,12 @@ fn build_menu(state: &AppState, overlays: &[OverlayWindow]) -> (Menu, HashMap<Op
             }
             let _ = display_preset_submenu.append(&delete_submenu);
         }
+        let _ = display_preset_submenu.append(&MenuItem::with_id(
+            format!("{}{}", MENU_ID_PRESET_SAVE_CURRENT, id_str),
+            "現在の設定を保存...",
+            true,
+            None
+        ));
         let _ = display_menu.append(&display_preset_submenu);
 
         // Per-display optimization
@@ -388,43 +393,6 @@ fn build_menu(state: &AppState, overlays: &[OverlayWindow]) -> (Menu, HashMap<Op
 
         let _ = menu.append(&display_menu);
     }
-
-    let _ = menu.append(&PredefinedMenuItem::separator());
-
-    // --- Global Presets & Management ---
-    let global_presets_submenu = Submenu::new("設定プリセット管理", true);
-    
-    let apply_all_submenu = Submenu::new("全ディスプレイに一括適用", true);
-    if state.presets.is_empty() {
-        let _ = apply_all_submenu.append(&MenuItem::with_id("empty", "(プリセットなし)", false, None));
-    } else {
-        for preset in &state.presets {
-            let item = MenuItem::with_id(
-                format!("preset_all:{}", preset.name),
-                preset.name.clone(),
-                true,
-                None,
-            );
-            let _ = apply_all_submenu.append(&item);
-        }
-    }
-    let _ = global_presets_submenu.append(&apply_all_submenu);
-
-    let _ = global_presets_submenu.append(&MenuItem::with_id(MENU_ID_PRESET_SAVE_CURRENT, "現在の設定を保存...", true, None));
-    
-    let delete_submenu = Submenu::new("プリセットを削除", true);
-    for preset in &state.presets {
-        let _ = delete_submenu.append(&MenuItem::with_id(
-            format!("{}{}", MENU_ID_PRESET_DELETE_PREFIX, preset.name),
-            preset.name.clone(),
-            true,
-            None,
-        ));
-    }
-    let _ = global_presets_submenu.append(&delete_submenu);
-    let _ = global_presets_submenu.append(&MenuItem::with_id(MENU_ID_PRESET_CLEAR_ALL, "すべてのプリセットを消去", true, None));
-
-    let _ = menu.append(&global_presets_submenu);
 
     let _ = menu.append(&PredefinedMenuItem::separator());
 

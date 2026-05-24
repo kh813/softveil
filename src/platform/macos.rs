@@ -304,7 +304,15 @@ pub fn has_screen_capture_access() -> bool {
     extern "C" {
         fn CGPreflightScreenCaptureAccess() -> bool;
         fn CGMainDisplayID() -> u32;
+        fn CGDisplayCreateImageForRect(display: u32, rect: CGRect) -> *mut std::ffi::c_void;
     }
+    #[repr(C)]
+    struct CGRect { origin: CGPoint, size: CGSize }
+    #[repr(C)]
+    struct CGPoint { x: f64, y: f64 }
+    #[repr(C)]
+    struct CGSize { width: f64, height: f64 }
+
     unsafe {
         // First, check preflight (fast)
         if CGPreflightScreenCaptureAccess() {
@@ -312,10 +320,20 @@ pub fn has_screen_capture_access() -> bool {
         }
         
         // If preflight returns false, it might be a false negative.
-        // Try a tiny capture to be absolutely sure.
+        // Try a tiny 1x1 capture to be absolutely sure.
         let display_id = CGMainDisplayID();
-        if let Some(_img) = CGDisplay::new(display_id).image() {
-            // If we can get even a single frame, we have access.
+        let rect = CGRect {
+            origin: CGPoint { x: 0.0, y: 0.0 },
+            size: CGSize { width: 1.0, height: 1.0 },
+        };
+        let image_ref = CGDisplayCreateImageForRect(display_id, rect);
+        if !image_ref.is_null() {
+            // Success! Release the image reference and return true.
+            #[link(name = "CoreFoundation", kind = "framework")]
+            extern "C" {
+                fn CFRelease(obj: *mut std::ffi::c_void);
+            }
+            CFRelease(image_ref);
             return true;
         }
 
@@ -323,6 +341,7 @@ pub fn has_screen_capture_access() -> bool {
     }
 }
 
+#[allow(dead_code)]
 pub fn request_screen_capture_access() -> bool {
     // If we already have access (either via preflight or successful capture), return true.
     if has_screen_capture_access() {

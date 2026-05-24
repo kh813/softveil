@@ -20,8 +20,9 @@ use tray::{
     MENU_ID_MODE_PREFIX, MENU_ID_PANEL_PREFIX, MENU_ID_CATEGORY_PREFIX, MENU_ID_INTENSITY_PREFIX, 
     MENU_ID_OVERRIDE_PERIOD_PREFIX, MENU_ID_OVERRIDE_COVER_PREFIX, MENU_ID_OVERRIDE_SPEED_PREFIX,
     MENU_ID_RESET_RECOMMENDED, MENU_ID_AUTO_START, MENU_ID_AI_DETECTION,
-    MENU_ID_PRESET_APPLY_PREFIX, MENU_ID_PRESET_DELETE_PREFIX, MENU_ID_PRESET_SAVE_CURRENT, MENU_ID_PRESET_CLEAR_ALL,
-    MENU_ID_RUN_BENCHMARK_PREFIX, MENU_ID_RUN_BENCHMARK_ALL, MENU_ID_QUIT
+    MENU_ID_PRESET_APPLY_PREFIX, MENU_ID_PRESET_DELETE_PREFIX, MENU_ID_PRESET_SAVE_CURRENT,
+    MENU_ID_RUN_BENCHMARK_ALL, MENU_ID_RUN_BENCHMARK_PREFIX, MENU_ID_QUIT,
+
 };
 use ai_detection::{AIDetectionCommand, start_detection_thread};
 use auto_launch::AutoLaunchBuilder;
@@ -351,22 +352,18 @@ fn main() {
                 {
                     // 1. 過去に許可済みか確認
                     if !state.screen_capture_authorized {
+                        logger!("Screen capture not yet authorized in config. Checking system permissions...");
                         // 2. 許可済みでない場合、実測（1x1キャプチャ）を試みる
                         if platform::has_screen_capture_access() {
-                            // 成功したら記録して続行
+                            logger!("System permission check succeeded. Updating config.");
                             state.screen_capture_authorized = true;
                             state.save();
                         } else {
-                            // 3. 失敗した場合、システムダイアログを表示
-                            platform::request_screen_capture_access();
-                            
-                            platform::show_error_dialog(
-                                "「画面収録」の許可が必要です / Permission Required",
-                                "ベンチマーク機能には画面収録の権限が必要です。\n\n1. 表示されたシステムダイアログ（またはシステム設定）で Softveil を許可してください。\n2. 許可が完了しましたら、もう一度メニューから最適化を実行してください。\n\nPlease allow Screen Recording for Softveil in System Settings, then try again.",
-                            );
-                            // Do not proceed
-                            return;
+                            // 偽陽性の可能性があるため、ここではダイアログを出さず、ベンチマークスレッド内での実際の失敗を待つ
+                            logger!("System permission check failed (pre-flight). Proceeding to verify with actual capture...");
                         }
+                    } else {
+                        logger!("Screen capture already authorized in config. Proceeding...");
                     }
                 }
                 logger!("Starting benchmark (monitor_id={:?}) from UI...", monitor_id);
@@ -404,6 +401,14 @@ fn main() {
                 // Do nothing, just wakeup and hit MainEventsCleared
             }
             Event::UserEvent(UserEvent::BenchmarkProgress(progress, ref message, monitor_id)) => {
+                #[cfg(target_os = "macos")]
+                {
+                    if !state.screen_capture_authorized && progress > 0.0 {
+                        logger!("Successful capture detected during benchmark. Updating authorization flag.");
+                        state.screen_capture_authorized = true;
+                        state.save();
+                    }
+                }
                 println!("Benchmark Progress: {:.0}% - {}", progress * 100.0, message);
                 let _old_progress = state.benchmark_progress.unwrap_or(0.0);
                 state.benchmark_progress = Some(progress);
@@ -801,22 +806,20 @@ fn main() {
                 if let Some(ref t) = tray_handle {
                     t.rebuild_menu(&state, &overlays);
                 }
-            } else if id == MENU_ID_PRESET_SAVE_CURRENT {
-                let name = format!("Preset {}", state.presets.len() + 1);
-                println!("Menu: Save Current as {}", name);
-                // Use the first display's settings as the preset
-                if let Some(first_config) = state.displays.values().next() {
-                    let settings = first_config.get_settings();
-                    state.save_preset(name, settings);
-                }
-                if let Some(ref t) = tray_handle {
-                    t.rebuild_menu(&state, &overlays);
-                }
-            } else if id == MENU_ID_PRESET_CLEAR_ALL {
-                println!("Menu: Clear All Presets");
-                state.clear_presets();
-                if let Some(ref t) = tray_handle {
-                    t.rebuild_menu(&state, &overlays);
+            } else if let Some(id_str) = id.strip_prefix(MENU_ID_PRESET_SAVE_CURRENT) {
+                if let Some(id_hex) = id_str.strip_prefix("0x") {
+                    if let Ok(val) = u64::from_str_radix(id_hex, 16) {
+                        let monitor_id = MonitorId(val);
+                        let name = format!("Preset {}", state.presets.len() + 1);
+                        println!("Menu: Save Current for {:?} as {}", monitor_id, name);
+                        if let Some(config) = state.displays.get(&monitor_id) {
+                            let settings = config.get_settings();
+                            state.save_preset(name, settings);
+                        }
+                        if let Some(ref t) = tray_handle {
+                            t.rebuild_menu(&state, &overlays);
+                        }
+                    }
                 }
             } else if id == MENU_ID_RUN_BENCHMARK_ALL {
                 let _ = proxy.send_event(UserEvent::RunBenchmark(None));
