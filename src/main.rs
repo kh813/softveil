@@ -21,7 +21,7 @@ use tray::{
     MENU_ID_OVERRIDE_PERIOD_PREFIX, MENU_ID_OVERRIDE_COVER_PREFIX, MENU_ID_OVERRIDE_SPEED_PREFIX,
     MENU_ID_RESET_RECOMMENDED, MENU_ID_AUTO_START, MENU_ID_AI_DETECTION,
     MENU_ID_PRESET_APPLY_PREFIX, MENU_ID_PRESET_DELETE_PREFIX, MENU_ID_PRESET_SAVE_CURRENT, MENU_ID_PRESET_CLEAR_ALL,
-    MENU_ID_RUN_BENCHMARK, MENU_ID_QUIT
+    MENU_ID_RUN_BENCHMARK_PREFIX, MENU_ID_RUN_BENCHMARK_ALL, MENU_ID_QUIT
 };
 use ai_detection::{AIDetectionCommand, start_detection_thread};
 use auto_launch::AutoLaunchBuilder;
@@ -36,9 +36,9 @@ pub enum UserEvent {
     Hotkey(HotkeyEvent),
     AIDetected(bool),
     DisplayChange,
-    RunBenchmark,
+    RunBenchmark(Option<MonitorId>),
     ProcessBenchmarkCommand,
-    BenchmarkProgress(f32, String),
+    BenchmarkProgress(f32, String, Option<MonitorId>),
     BenchmarkFinished(String),
 }
 
@@ -49,7 +49,7 @@ pub enum BenchmarkCommand {
     CaptureBatch(Vec<MonitorId>, mpsc::Sender<Vec<(MonitorId, Result<image::DynamicImage, String>)>>),
     SetTestSettings(MonitorId, FilterMode, f32, Option<f32>, Option<f32>, Option<f32>),
     SetBatchSettings(Vec<(MonitorId, FilterMode, f32, Option<f32>, Option<f32>, Option<f32>)>),
-    Progress(f32, String),
+    Progress(f32, String, Option<MonitorId>),
     Finished(Vec<crate::display_config::Preset>, String),
 }
 
@@ -142,6 +142,7 @@ fn main() {
     overlay::sync_all(&mut overlays, &state, &gpu);
     
     if is_benchmark {
+        // Legacy CLI benchmark path
         benchmark::run_benchmark(gpu.clone(), state, &mut overlays);
         std::process::exit(0);
     }
@@ -302,8 +303,8 @@ fn main() {
                                 let _ = tx.send(());
                             }
                         }
-                        BenchmarkCommand::Progress(progress, message) => {
-                            let _ = proxy.send_event(UserEvent::BenchmarkProgress(progress, message));
+                        BenchmarkCommand::Progress(progress, message, monitor_id) => {
+                            let _ = proxy.send_event(UserEvent::BenchmarkProgress(progress, message, monitor_id));
                         }
                         BenchmarkCommand::Finished(new_presets, summary) => {
                             println!("Benchmark finished. Received {} new presets.", new_presets.len());
@@ -311,6 +312,7 @@ fn main() {
                                 state.save_preset(preset.name, preset.settings);
                             }
                             if let Some(ref t) = tray_handle {
+                                t.set_benchmark_running(false);
                                 t.rebuild_menu(&state, &overlays);
                             }
                             let _ = proxy.send_event(UserEvent::BenchmarkFinished(summary));
@@ -353,7 +355,7 @@ fn main() {
                     overlay::sync_all(&mut overlays, &state, &gpu);
                     needs_animation = calc_needs_animation(&overlays, &state);
                 }
-            Event::UserEvent(UserEvent::RunBenchmark) => {
+            Event::UserEvent(UserEvent::RunBenchmark(monitor_id)) => {
                 #[cfg(target_os = "macos")]
                 {
                     // Use request_screen_capture_access which handles the check and request natively.
@@ -367,15 +369,17 @@ fn main() {
                         return;
                     }
                 }
-                logger!("Starting benchmark from UI...");
+                logger!("Starting benchmark (monitor_id={:?}) from UI...", monitor_id);
                 state.benchmark_progress = Some(0.0);
                 if let Some(ref t) = tray_handle {
-                    t.rebuild_menu(&state, &overlays);
+                    t.set_benchmark_running(true);
+                    t.update_benchmark_progress(0.0, monitor_id);
                 }
 
                 platform::send_notification("Softveil", "ベンチマーク開始", "画面の最適化測定を開始しました。完了までしばらくお待ちください。");
                 
                 let monitor_info: Vec<(MonitorId, String)> = overlays.iter()
+                    .filter(|o| monitor_id.is_none() || monitor_id == Some(o.monitor_id))
                     .map(|o| (o.monitor_id, o.monitor_name.clone()))
                     .collect();
                 
@@ -393,29 +397,24 @@ fn main() {
                 let proxy_clone = proxy.clone();
                 
                 std::thread::spawn(move || {
-                    benchmark::run_benchmark_threaded(monitor_info, cmd_tx, resp_rx, original_settings, proxy_clone);
+                    benchmark::run_benchmark_threaded(monitor_id, monitor_info, cmd_tx, resp_rx, original_settings, proxy_clone);
                 });
             }
             Event::UserEvent(UserEvent::ProcessBenchmarkCommand) => {
                 // Do nothing, just wakeup and hit MainEventsCleared
             }
-            Event::UserEvent(UserEvent::BenchmarkProgress(progress, ref message)) => {
+            Event::UserEvent(UserEvent::BenchmarkProgress(progress, ref message, monitor_id)) => {
                 println!("Benchmark Progress: {:.0}% - {}", progress * 100.0, message);
-                let old_progress = state.benchmark_progress.unwrap_or(0.0);
+                let _old_progress = state.benchmark_progress.unwrap_or(0.0);
                 state.benchmark_progress = Some(progress);
                 
                 if let Some(ref t) = tray_handle {
                     t.set_tooltip(&format!("Softveil (ベンチマーク中: {:.0}%)", progress * 100.0));
-                    
-                    // Rebuild menu only on significant steps to avoid constant closure on macOS,
-                    // but enough to show it's moving if the user re-opens it.
-                    if (progress * 10.0).floor() > (old_progress * 10.0).floor() || progress == 0.0 {
-                         t.rebuild_menu(&state, &overlays);
-                    }
+                    t.update_benchmark_progress(progress, monitor_id);
                 }
 
                 // 25% ごとに通知
-                if (progress * 4.0).floor() > (old_progress * 4.0).floor() {
+                if (progress * 4.0).floor() > (_old_progress * 4.0).floor() {
                     platform::send_notification("Softveil", "最適化進行中", &format!("進捗: {:.0}%", progress * 100.0));
                 }
             }
@@ -426,11 +425,11 @@ fn main() {
                     t.rebuild_menu(&state, &overlays);
                 }
 
-                platform::send_notification("Softveil", "最適化完了", "全モニターの性能測定が完了しました。");
+                platform::send_notification("Softveil", "最適化完了", "性能測定が完了しました。");
                 
                 crate::platform::show_info_dialog(
                     "最適化完了 / Optimization Complete",
-                    &format!("全モニターの性能測定と最適化が完了しました。\n\n【結果の要約】\n{}\n\n設定プリセットメニューから適用可能です。", summary)
+                    &format!("性能測定と最適化が完了しました。\n\n【結果の要約】\n{}\n\n設定プリセットメニューから適用可能です。", summary)
                 );
             }
             Event::UserEvent(UserEvent::DisplayChange) => {
@@ -819,8 +818,15 @@ fn main() {
                 if let Some(ref t) = tray_handle {
                     t.rebuild_menu(&state, &overlays);
                 }
-            } else if id == MENU_ID_RUN_BENCHMARK {
-                let _ = proxy.send_event(UserEvent::RunBenchmark);
+            } else if id == MENU_ID_RUN_BENCHMARK_ALL {
+                let _ = proxy.send_event(UserEvent::RunBenchmark(None));
+            } else if let Some(id_str) = id.strip_prefix(MENU_ID_RUN_BENCHMARK_PREFIX) {
+                if let Some(id_hex) = id_str.strip_prefix("0x") {
+                    if let Ok(val) = u64::from_str_radix(id_hex, 16) {
+                        let monitor_id = MonitorId(val);
+                        let _ = proxy.send_event(UserEvent::RunBenchmark(Some(monitor_id)));
+                    }
+                }
             } else if id == MENU_ID_AUTO_START {
                 println!("Menu: Toggle Auto Start");
                 let enabled = state.toggle_auto_start();

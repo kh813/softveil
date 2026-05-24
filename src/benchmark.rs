@@ -257,13 +257,14 @@ fn analyze_privacy_effect(img: &DynamicImage) -> (f32, f32) {
 }
 
 pub fn run_benchmark_threaded(
+    requested_monitor_id: Option<MonitorId>,
     monitor_info: Vec<(MonitorId, String)>,
     cmd_tx: std::sync::mpsc::Sender<crate::BenchmarkCommand>,
     resp_rx: std::sync::mpsc::Receiver<()>,
     original_settings: std::collections::HashMap<MonitorId, crate::display_config::FilterSettings>,
     proxy: tao::event_loop::EventLoopProxy<crate::UserEvent>,
 ) {
-    logger!("Starting Optimized Threaded Mechanical Benchmark (Batch Mode)...");
+    logger!("Starting Optimized Threaded Mechanical Benchmark (Batch Mode, Target={:?})...", requested_monitor_id);
 
     let results_dir = get_benchmark_results_dir();
     if let Err(e) = fs::create_dir_all(&results_dir) {
@@ -304,7 +305,8 @@ pub fn run_benchmark_threaded(
             logger!("Benchmark Step: {:?} / Alpha {:.1} ({:.0}%)", mode, alpha, progress * 100.0);
             send_cmd(crate::BenchmarkCommand::Progress(
                 progress,
-                format!("全モニターを測定中... ({:?} / Alpha {:.1})", mode, alpha)
+                format!("測定中... ({:?} / Alpha {:.1})", mode, alpha),
+                requested_monitor_id
             ));
 
             // Set settings for ALL monitors
@@ -390,7 +392,8 @@ pub fn run_benchmark_threaded(
             logger!("Optimization Step: P={:.2} C={:.0}% ({:.0}%)", p, c * 100.0, progress * 100.0);
             send_cmd(crate::BenchmarkCommand::Progress(
                 progress,
-                format!("全モニターの最適化パラメータを探索中... (P={:.2} C={:.0}%)", p, c * 100.0)
+                format!("最適化パラメータを探索中... (P={:.2} C={:.0}%)", p, c * 100.0),
+                requested_monitor_id
             ));
 
             let mut batch = Vec::new();

@@ -1,8 +1,11 @@
 use crate::app::AppState;
 use crate::display_config::FilterMode;
 use crate::overlay::OverlayWindow;
+use crate::display_config::MonitorId;
 use tray_icon::{TrayIcon, TrayIconBuilder, Icon};
 use muda::{Menu, MenuItem, Submenu, PredefinedMenuItem, CheckMenuItem};
+use std::sync::Mutex;
+use std::collections::HashMap;
 
 pub const MENU_ID_GLOBAL_TOGGLE: &str = "global_toggle";
 pub const MENU_ID_DISPLAY_TOGGLE_PREFIX: &str = "display_toggle:";
@@ -21,11 +24,15 @@ pub const MENU_ID_PRESET_APPLY_PREFIX: &str = "preset_apply:";
 pub const MENU_ID_PRESET_DELETE_PREFIX: &str = "preset_delete:";
 pub const MENU_ID_PRESET_SAVE_CURRENT: &str = "preset_save_current";
 pub const MENU_ID_PRESET_CLEAR_ALL: &str = "preset_clear_all";
-pub const MENU_ID_RUN_BENCHMARK: &str = "run_benchmark";
+pub const MENU_ID_RUN_BENCHMARK_PREFIX: &str = "run_benchmark:";
+pub const MENU_ID_RUN_BENCHMARK_ALL: &str = "run_benchmark_all";
 pub const MENU_ID_QUIT: &str = "quit";
 
 pub struct TrayHandle {
     icon: TrayIcon,
+    // Store references to menu items that need surgical updates (e.g. progress labels)
+    // Key: Option<MonitorId> where None is Global, Some is per-monitor
+    benchmark_items: Mutex<HashMap<Option<MonitorId>, MenuItem>>,
 }
 
 #[derive(Debug)]
@@ -46,7 +53,7 @@ impl TrayHandle {
         let (width, height) = rgba.dimensions();
         let icon = Icon::from_rgba(rgba.into_raw(), width, height).map_err(|e| TrayError::IconError(e.to_string()))?;
 
-        let menu = build_menu(state, overlays);
+        let (menu, benchmark_items) = build_menu(state, overlays);
 
         let builder = TrayIconBuilder::new()
             .with_icon(icon)
@@ -60,23 +67,55 @@ impl TrayHandle {
 
         Ok(Self {
             icon: tray_icon,
+            benchmark_items: Mutex::new(benchmark_items),
         })
     }
 
     pub fn rebuild_menu(&self, state: &AppState, overlays: &[OverlayWindow]) {
         #[cfg(target_os = "macos")]
         {
-            // macOS UI updates must happen on the main thread to avoid menu displacement.
-            // This acts as a runtime check (assertion in debug mode).
             if objc2::MainThreadMarker::new().is_none() {
                 #[cfg(debug_assertions)]
-                panic!("Tray menu rebuild called from non-main thread on macOS! This is a regression.");
+                panic!("Tray menu rebuild called from non-main thread on macOS!");
                 #[cfg(not(debug_assertions))]
-                return; // Silently fail in release but prevent displacement
+                return;
             }
         }
-        let menu = build_menu(state, overlays);
+        let (menu, benchmark_items) = build_menu(state, overlays);
         self.icon.set_menu(Some(Box::new(menu)));
+        if let Ok(mut map) = self.benchmark_items.lock() {
+            *map = benchmark_items;
+        }
+    }
+
+    pub fn update_benchmark_progress(&self, progress: f32, monitor_id: Option<MonitorId>) {
+        if let Ok(map) = self.benchmark_items.lock() {
+            if let Some(item) = map.get(&monitor_id) {
+                let pct = (progress * 100.0).round() as u32;
+                let base_text = if monitor_id.is_none() {
+                    "全画面を最適化する"
+                } else {
+                    "この画面を最適化"
+                };
+                let _ = item.set_text(format!("{} ({}%) ...", base_text, pct));
+            }
+        }
+    }
+
+    pub fn set_benchmark_running(&self, running: bool) {
+        if let Ok(map) = self.benchmark_items.lock() {
+            for (id, item) in map.iter() {
+                let _ = item.set_enabled(!running);
+                if !running {
+                    let base_text = if id.is_none() {
+                        "全画面を最適化する (ベンチマーク)..."
+                    } else {
+                        "この画面を最適化 (ベンチマーク)..."
+                    };
+                    let _ = item.set_text(base_text);
+                }
+            }
+        }
     }
 
     pub fn set_tooltip(&self, tooltip: &str) {
@@ -84,8 +123,9 @@ impl TrayHandle {
     }
 }
 
-fn build_menu(state: &AppState, overlays: &[OverlayWindow]) -> Menu {
+fn build_menu(state: &AppState, overlays: &[OverlayWindow]) -> (Menu, HashMap<Option<MonitorId>, MenuItem>) {
     let menu = Menu::new();
+    let mut benchmark_items = HashMap::new();
 
     let global_toggle = CheckMenuItem::with_id(
         MENU_ID_GLOBAL_TOGGLE,
@@ -128,43 +168,7 @@ fn build_menu(state: &AppState, overlays: &[OverlayWindow]) -> Menu {
         );
         let _ = display_menu.append(&toggle_item);
 
-        let category_submenu = Submenu::new("画面タイプを変更", true);
-        let categories = [
-            (crate::display_config::DisplayCategory::NotebookFhd,     "ノートPC FHD (14インチ 1080p)"),
-            (crate::display_config::DisplayCategory::NotebookHiDpi,   "ノートPC 高解像度 (14インチ 2K/Retina)"),
-            (crate::display_config::DisplayCategory::ExternalLarge4K, "外付け大型 4K (27〜32インチ 4K)"),
-            (crate::display_config::DisplayCategory::ExternalGeneral, "外付け 標準 (24インチ FHD/QHD)"),
-        ];
-        for (cat, label) in categories {
-            let item = CheckMenuItem::with_id(
-                format!("{}{}:{:?}", MENU_ID_CATEGORY_PREFIX, id_str, cat),
-                label,
-                true,
-                config.display_category == cat,
-                None,
-            );
-            let _ = category_submenu.append(&item);
-        }
-        let _ = display_menu.append(&category_submenu);
-
-        let panel_submenu = Submenu::new(format!("パネル種別 ({})", config.panel_type.to_str()), true);
-        let panels = [
-            (crate::display_config::PanelType::Unknown, "Unknown (不明)"),
-            (crate::display_config::PanelType::Oled, "OLED (有機EL)"),
-            (crate::display_config::PanelType::LcdIps, "LCD IPS (液晶)"),
-            (crate::display_config::PanelType::LcdTn, "LCD TN (液晶)"),
-        ];
-        for (panel, label) in panels {
-            let item = CheckMenuItem::with_id(
-                format!("{}{}:{:?}", MENU_ID_PANEL_PREFIX, id_str, panel),
-                label,
-                true,
-                config.panel_type == panel,
-                None,
-            );
-            let _ = panel_submenu.append(&item);
-        }
-        let _ = display_menu.append(&panel_submenu);
+        let _ = display_menu.append(&PredefinedMenuItem::separator());
 
         let mode_submenu = Submenu::new("フィルター形式", true);
         let modes = [
@@ -188,6 +192,22 @@ fn build_menu(state: &AppState, overlays: &[OverlayWindow]) -> Menu {
         }
         let _ = display_menu.append(&mode_submenu);
 
+        let alpha_submenu = Submenu::new("フィルター濃度", true);
+        for i in 1..=10 {
+            let alpha_pct = i * 10;
+            let target_alpha = alpha_pct as f32 / 100.0;
+            let is_checked = (config.alpha - target_alpha).abs() < 0.01;
+            let item = CheckMenuItem::with_id(
+                format!("{}{}:{}", MENU_ID_ALPHA_PREFIX, id_str, alpha_pct),
+                format!("{}%", alpha_pct),
+                true,
+                is_checked,
+                None,
+            );
+            let _ = alpha_submenu.append(&item);
+        }
+        let _ = display_menu.append(&alpha_submenu);
+
         let intensity_submenu = Submenu::new("フィルター強度", true);
         let intensities = [
             (0.5f32, "最高 (密度高)"),
@@ -209,25 +229,8 @@ fn build_menu(state: &AppState, overlays: &[OverlayWindow]) -> Menu {
         }
         let _ = display_menu.append(&intensity_submenu);
 
-        let alpha_submenu = Submenu::new("フィルター濃度", true);
-        for i in 1..=10 {
-            let alpha_pct = i * 10;
-            let target_alpha = alpha_pct as f32 / 100.0;
-            let is_checked = (config.alpha - target_alpha).abs() < 0.01;
-            let item = CheckMenuItem::with_id(
-                format!("{}{}:{}", MENU_ID_ALPHA_PREFIX, id_str, alpha_pct),
-                format!("{}%", alpha_pct),
-                true,
-                is_checked,
-                None,
-            );
-            let _ = alpha_submenu.append(&item);
-        }
-        let _ = display_menu.append(&alpha_submenu);
-
-        let fine_tune_submenu = Submenu::new("高度な微調整 (フリッカー対策)", true);
+        let fine_tune_submenu = Submenu::new("高度な微調整", true);
         
-        // 1. 縞の太さ (Period)
         let period_submenu = Submenu::new("縞の太さ (Period)", true);
         let periods = [
             (None, "自動 (推奨)"),
@@ -249,8 +252,7 @@ fn build_menu(state: &AppState, overlays: &[OverlayWindow]) -> Menu {
         }
         let _ = fine_tune_submenu.append(&period_submenu);
 
-        // 2. 遮蔽率 (Cover Ratio)
-        let cover_submenu = Submenu::new("遮蔽率 (角度プライバシー)", true);
+        let cover_submenu = Submenu::new("遮蔽率 (Cover Ratio)", true);
         let covers = [
             (None, "自動 (推奨)"),
             (Some(0.50f32), "低 (50%)"),
@@ -271,11 +273,10 @@ fn build_menu(state: &AppState, overlays: &[OverlayWindow]) -> Menu {
         }
         let _ = fine_tune_submenu.append(&cover_submenu);
 
-        // 3. スクロール速度 (Scroll Speed)
-        let speed_submenu = Submenu::new("スクロール速度 (静止画〜高速)", true);
+        let speed_submenu = Submenu::new("スクロール速度", true);
         let speeds = [
             (None, "自動 (推奨)"),
-            (Some(0.0f32), "静止 (0mm/s) - フリッカーなし"),
+            (Some(0.0f32), "静止 (0mm/s)"),
             (Some(5.0f32), "極低速 (5mm/s)"),
             (Some(20.0f32), "低速 (20mm/s)"),
             (Some(50.0f32), "標準 (50mm/s)"),
@@ -292,14 +293,78 @@ fn build_menu(state: &AppState, overlays: &[OverlayWindow]) -> Menu {
             let _ = speed_submenu.append(&item);
         }
         let _ = fine_tune_submenu.append(&speed_submenu);
-
         let _ = display_menu.append(&fine_tune_submenu);
+
+        let panel_submenu = Submenu::new(format!("パネル種別を変更 ({})", config.panel_type.to_str()), true);
+        let panels = [
+            (crate::display_config::PanelType::Unknown, "Unknown (不明)"),
+            (crate::display_config::PanelType::Oled, "OLED (有機EL)"),
+            (crate::display_config::PanelType::LcdIps, "LCD IPS (液晶)"),
+            (crate::display_config::PanelType::LcdTn, "LCD TN (液晶)"),
+        ];
+        for (panel, label) in panels {
+            let item = CheckMenuItem::with_id(
+                format!("{}{}:{:?}", MENU_ID_PANEL_PREFIX, id_str, panel),
+                label,
+                true,
+                config.panel_type == panel,
+                None,
+            );
+            let _ = panel_submenu.append(&item);
+        }
+        let _ = display_menu.append(&panel_submenu);
+
+        let category_submenu = Submenu::new("画面タイプを変更", true);
+        let categories = [
+            (crate::display_config::DisplayCategory::NotebookFhd,     "ノートPC FHD"),
+            (crate::display_config::DisplayCategory::NotebookHiDpi,   "ノートPC 高解像度"),
+            (crate::display_config::DisplayCategory::ExternalLarge4K, "外付け大型 4K"),
+            (crate::display_config::DisplayCategory::ExternalGeneral, "外付け 標準"),
+        ];
+        for (cat, label) in categories {
+            let item = CheckMenuItem::with_id(
+                format!("{}{}:{:?}", MENU_ID_CATEGORY_PREFIX, id_str, cat),
+                label,
+                true,
+                config.display_category == cat,
+                None,
+            );
+            let _ = category_submenu.append(&item);
+        }
+        let _ = display_menu.append(&category_submenu);
 
         let _ = display_menu.append(&PredefinedMenuItem::separator());
 
+        // Per-display Preset Selection
+        let display_preset_submenu = Submenu::new("プリセット適用", true);
+        if state.presets.is_empty() {
+             let _ = display_preset_submenu.append(&MenuItem::with_id("empty", "(プリセットなし)", false, None));
+        } else {
+            for preset in &state.presets {
+                let item = MenuItem::with_id(
+                    format!("{}{}:{}", MENU_ID_PRESET_APPLY_PREFIX, id_str, preset.name),
+                    preset.name.clone(),
+                    true,
+                    None,
+                );
+                let _ = display_preset_submenu.append(&item);
+            }
+        }
+        let _ = display_menu.append(&display_preset_submenu);
+
+        // Per-display optimization
+        let optimize_item = MenuItem::with_id(
+            format!("{}{}", MENU_ID_RUN_BENCHMARK_PREFIX, id_str),
+            "この画面を最適化 (ベンチマーク)...",
+            state.benchmark_progress.is_none(),
+            None,
+        );
+        let _ = display_menu.append(&optimize_item);
+        benchmark_items.insert(Some(overlay.monitor_id), optimize_item);
+
         let reset_item = MenuItem::with_id(
             format!("{}{}", MENU_ID_RESET_RECOMMENDED, id_str),
-            "おすすめ設定を適用 (自動判定)",
+            "おすすめ設定に戻す",
             true,
             None,
         );
@@ -310,14 +375,52 @@ fn build_menu(state: &AppState, overlays: &[OverlayWindow]) -> Menu {
 
     let _ = menu.append(&PredefinedMenuItem::separator());
 
-    let auto_start_item = CheckMenuItem::with_id(
-        MENU_ID_AUTO_START,
-        "ログイン時に起動",
-        true,
-        state.auto_start,
-        None,
-    );
-    let _ = menu.append(&auto_start_item);
+    // --- Global Presets & Management ---
+    let global_presets_submenu = Submenu::new("設定プリセット管理", true);
+    
+    let apply_all_submenu = Submenu::new("全ディスプレイに一括適用", true);
+    if state.presets.is_empty() {
+        let _ = apply_all_submenu.append(&MenuItem::with_id("empty", "(プリセットなし)", false, None));
+    } else {
+        for preset in &state.presets {
+            let item = MenuItem::with_id(
+                format!("preset_all:{}", preset.name),
+                preset.name.clone(),
+                true,
+                None,
+            );
+            let _ = apply_all_submenu.append(&item);
+        }
+    }
+    let _ = global_presets_submenu.append(&apply_all_submenu);
+
+    let _ = global_presets_submenu.append(&MenuItem::with_id(MENU_ID_PRESET_SAVE_CURRENT, "現在の設定を保存...", true, None));
+    
+    let delete_submenu = Submenu::new("プリセットを削除", true);
+    for preset in &state.presets {
+        let _ = delete_submenu.append(&MenuItem::with_id(
+            format!("{}{}", MENU_ID_PRESET_DELETE_PREFIX, preset.name),
+            preset.name.clone(),
+            true,
+            None,
+        ));
+    }
+    let _ = global_presets_submenu.append(&delete_submenu);
+    let _ = global_presets_submenu.append(&MenuItem::with_id(MENU_ID_PRESET_CLEAR_ALL, "すべてのプリセットを消去", true, None));
+
+    let _ = menu.append(&global_presets_submenu);
+
+    let _ = menu.append(&PredefinedMenuItem::separator());
+
+    // Global optimization
+    let benchmark_label = if let Some(progress) = state.benchmark_progress {
+        format!("全画面を最適化中 ({:.0}%) ...", progress * 100.0)
+    } else {
+        "全画面を最適化する (ベンチマーク)...".to_string()
+    };
+    let run_benchmark_all_item = MenuItem::with_id(MENU_ID_RUN_BENCHMARK_ALL, benchmark_label, state.benchmark_progress.is_none(), None);
+    let _ = menu.append(&run_benchmark_all_item);
+    benchmark_items.insert(None, run_benchmark_all_item);
 
     let ai_detection_item = CheckMenuItem::with_id(
         MENU_ID_AI_DETECTION,
@@ -328,86 +431,19 @@ fn build_menu(state: &AppState, overlays: &[OverlayWindow]) -> Menu {
     );
     let _ = menu.append(&ai_detection_item);
 
-    let _ = menu.append(&PredefinedMenuItem::separator());
-
-    // --- Presets Submenu ---
-    let presets_submenu = Submenu::new("設定プリセット", true);
-    
-    if state.presets.is_empty() {
-        let empty_item = MenuItem::with_id("preset_empty", "(プリセットなし)", false, None);
-        let _ = presets_submenu.append(&empty_item);
-    } else {
-        // 1. Apply to All
-        let apply_all_submenu = Submenu::new("全ディスプレイに一括適用", true);
-        for preset in &state.presets {
-            let item = MenuItem::with_id(
-                format!("preset_all:{}", preset.name),
-                preset.name.clone(),
-                true,
-                None,
-            );
-            let _ = apply_all_submenu.append(&item);
-        }
-        let _ = presets_submenu.append(&apply_all_submenu);
-        
-        let _ = presets_submenu.append(&PredefinedMenuItem::separator());
-
-        // 2. Per-Display Application
-        for overlay in overlays {
-            let display_preset_submenu = Submenu::new(&overlay.monitor_name, true);
-            for preset in &state.presets {
-                let id_str = overlay.monitor_id.to_string();
-                let item = MenuItem::with_id(
-                    format!("{}{}:{}", MENU_ID_PRESET_APPLY_PREFIX, id_str, preset.name),
-                    preset.name.clone(),
-                    true,
-                    None,
-                );
-                let _ = display_preset_submenu.append(&item);
-            }
-            let _ = presets_submenu.append(&display_preset_submenu);
-        }
-
-        let _ = presets_submenu.append(&PredefinedMenuItem::separator());
-        
-        // 3. Management
-        let delete_submenu = Submenu::new("プリセットを削除", true);
-        for preset in &state.presets {
-            let delete_item = MenuItem::with_id(
-                format!("{}{}", MENU_ID_PRESET_DELETE_PREFIX, preset.name),
-                preset.name.clone(),
-                true,
-                None,
-            );
-            let _ = delete_submenu.append(&delete_item);
-        }
-        let _ = presets_submenu.append(&delete_submenu);
-        
-        let clear_all_item = MenuItem::with_id(MENU_ID_PRESET_CLEAR_ALL, "すべてのプリセットを消去", true, None);
-        let _ = presets_submenu.append(&clear_all_item);
-        
-        let _ = presets_submenu.append(&PredefinedMenuItem::separator());
-    }
-
-    let save_current_item = MenuItem::with_id(MENU_ID_PRESET_SAVE_CURRENT, "現在の設定を保存...", true, None);
-    let _ = presets_submenu.append(&save_current_item);
-
-    let _ = presets_submenu.append(&PredefinedMenuItem::separator());
-    
-    let benchmark_label = if let Some(progress) = state.benchmark_progress {
-        format!("画面を最適化中 ({:.0}%) ...", progress * 100.0)
-    } else {
-        "画面を最適化する (ベンチマーク)...".to_string()
-    };
-    let run_benchmark_item = MenuItem::with_id(MENU_ID_RUN_BENCHMARK, benchmark_label, state.benchmark_progress.is_none(), None);
-    let _ = presets_submenu.append(&run_benchmark_item);
-
-    let _ = menu.append(&presets_submenu);
+    let auto_start_item = CheckMenuItem::with_id(
+        MENU_ID_AUTO_START,
+        "ログイン時に起動",
+        true,
+        state.auto_start,
+        None,
+    );
+    let _ = menu.append(&auto_start_item);
 
     let _ = menu.append(&PredefinedMenuItem::separator());
 
     let quit_item = MenuItem::with_id(MENU_ID_QUIT, "Softveil を終了", true, None);
     let _ = menu.append(&quit_item);
 
-    menu
+    (menu, benchmark_items)
 }
