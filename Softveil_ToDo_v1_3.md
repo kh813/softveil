@@ -330,3 +330,11 @@
     - [x] 🍎 macOS: ベンチマーク中にメニューが消える問題を修正（進捗時のメニュー再構築を抑制） ✅
     - [x] 🍎 macOS: ステルスダークでダークモードに切り替わらない問題を修正（AppleScript 同期処理の見直し） ✅
 
+## Phase 12.3: macOS Quality & Stability Polish 🧪 ✅
+
+- [x] 🍎 macOS: 「終了」メニューが機能しない問題を修正（重複ハンドラの整理と確実な Exit） ✅
+- [x] 🍎 macOS: 権限許可済みでも警告が出る問題を修正（`CGRequestScreenCaptureAccess` の適切な利用と実測判定の統合） ✅
+- [x] 🍎 macOS: ベンチマーク中にメニューが消える問題を修正（テーマ変更時の `rebuild_menu` 抑制） ✅
+- [x] 🍎 macOS: ベンチマーク進捗が 0% から動かない問題を修正（10% ごとのメニュー更新を導入） ✅
+- [x] 🍎 macOS: ステルス・ダークの AppleScript 実行をより堅牢に（エラーログ追加） ✅
+

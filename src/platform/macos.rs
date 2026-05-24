@@ -323,6 +323,22 @@ pub fn has_screen_capture_access() -> bool {
     }
 }
 
+pub fn request_screen_capture_access() -> bool {
+    // If we already have access (either via preflight or successful capture), return true.
+    if has_screen_capture_access() {
+        return true;
+    }
+
+    #[link(name = "CoreGraphics", kind = "framework")]
+    extern "C" {
+        fn CGRequestScreenCaptureAccess() -> bool;
+    }
+    unsafe {
+        // This will trigger the system dialog if not already granted.
+        CGRequestScreenCaptureAccess()
+    }
+}
+
 pub fn is_dark_mode() -> bool {
     let defaults = NSUserDefaults::standardUserDefaults();
     let key = NSString::from_str("AppleInterfaceStyle");
@@ -339,14 +355,19 @@ pub fn set_dark_mode(enabled: bool) {
 
     #[cfg(not(test))]
     {
-        let source = format!(
-            "tell application \"System Events\" to tell appearance preferences to set dark mode to {}",
-            enabled
-        );
+        let source = if enabled {
+            "tell application \"System Events\" to tell appearance preferences to set dark mode to true"
+        } else {
+            "tell application \"System Events\" to tell appearance preferences to set dark mode to false"
+        };
+        
         unsafe {
-            if let Some(script) = NSAppleScript::initWithSource(NSAppleScript::alloc(), &NSString::from_str(&source)) {
-                // executeAndReturnError: expects a pointer to an NSDictionary pointer for errors (^@).
-                let _: *mut NSObject = msg_send![&*script, executeAndReturnError: std::ptr::null_mut::<*mut NSObject>()];
+            if let Some(script) = NSAppleScript::initWithSource(NSAppleScript::alloc(), &NSString::from_str(source)) {
+                let mut error: *mut NSObject = std::ptr::null_mut();
+                let _: *mut NSObject = msg_send![&*script, executeAndReturnError: &mut error];
+                if !error.is_null() {
+                    logger!("NSAppleScript Error in set_dark_mode: {:?}", error);
+                }
             }
         }
     }

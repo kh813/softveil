@@ -356,7 +356,9 @@ fn main() {
             Event::UserEvent(UserEvent::RunBenchmark) => {
                 #[cfg(target_os = "macos")]
                 {
-                    if !platform::has_screen_capture_access() {
+                    // Use request_screen_capture_access which handles the check and request natively.
+                    // If it returns false, it means we don't have access yet.
+                    if !platform::request_screen_capture_access() {
                         platform::show_error_dialog(
                             "「画面収録」の許可が必要です",
                             "ベンチマーク機能には画面収録の権限が必要です。\nシステム設定 > プライバシーとセキュリティ > 画面収録 で Softveil を許可してください。",
@@ -399,16 +401,21 @@ fn main() {
             }
             Event::UserEvent(UserEvent::BenchmarkProgress(progress, ref message)) => {
                 println!("Benchmark Progress: {:.0}% - {}", progress * 100.0, message);
-                let _old_progress = state.benchmark_progress.unwrap_or(0.0);
+                let old_progress = state.benchmark_progress.unwrap_or(0.0);
                 state.benchmark_progress = Some(progress);
                 
                 if let Some(ref t) = tray_handle {
                     t.set_tooltip(&format!("Softveil (ベンチマーク中: {:.0}%)", progress * 100.0));
-                    // Don't rebuild_menu here because it causes the menu to close on macOS
+                    
+                    // Rebuild menu only on significant steps to avoid constant closure on macOS,
+                    // but enough to show it's moving if the user re-opens it.
+                    if (progress * 10.0).floor() > (old_progress * 10.0).floor() || progress == 0.0 {
+                         t.rebuild_menu(&state, &overlays);
+                    }
                 }
 
                 // 25% ごとに通知
-                if (progress * 4.0).floor() > (_old_progress * 4.0).floor() {
+                if (progress * 4.0).floor() > (old_progress * 4.0).floor() {
                     platform::send_notification("Softveil", "最適化進行中", &format!("進捗: {:.0}%", progress * 100.0));
                 }
             }
@@ -501,8 +508,13 @@ fn main() {
                     // IDs match: テーマ変更（ダークモード切替）の可能性があるため再描画する
                     overlay::sync_all(&mut overlays, &state, &gpu);
                     needs_animation = calc_needs_animation(&overlays, &state);
-                    if let Some(ref t) = tray_handle {
-                        t.rebuild_menu(&state, &overlays);
+                    
+                    // Don't rebuild_menu during benchmark as theme changes (Stealth modes) 
+                    // will constantly close the menu.
+                    if state.benchmark_progress.is_none() {
+                        if let Some(ref t) = tray_handle {
+                            t.rebuild_menu(&state, &overlays);
+                        }
                     }
                 }
             }
@@ -521,10 +533,6 @@ fn main() {
                 if let Some(ref t) = tray_handle {
                     t.rebuild_menu(&state, &overlays);
                 }
-            } else if id == MENU_ID_QUIT {
-                println!("Menu: Quit");
-                state.restore_os_settings();
-                *control_flow = ControlFlow::Exit;
             } else if let Some(id_str) = id.strip_prefix(MENU_ID_DISPLAY_TOGGLE_PREFIX) {
                 if let Some(id_hex) = id_str.strip_prefix("0x") {
                     if let Ok(val) = u64::from_str_radix(id_hex, 16) {
