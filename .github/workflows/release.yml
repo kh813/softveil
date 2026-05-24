@@ -24,23 +24,55 @@ jobs:
             target: aarch64-apple-darwin
             asset_name: Softveil-macOS-arm64.zip
           - os: windows-latest
-            target: x86_64-pc-windows-msvc
             asset_name: Softveil-Windows-x64.zip
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install Rust
+      - name: Install Rust (MSVC for Windows / Darwin for macOS)
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.platform.target }}
+          targets: ${{ matrix.platform.target || 'x86_64-pc-windows-msvc' }}
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
 
-      - name: Build binary
+      - name: Build binary (macOS)
+        if: matrix.platform.os == 'macos-latest'
         run: cargo build --release --target ${{ matrix.platform.target }}
+
+      - name: Build binary (Windows MSVC)
+        if: matrix.platform.os == 'windows-latest'
+        id: build_msvc
+        continue-on-error: true
+        run: |
+          cargo build --release --target x86_64-pc-windows-msvc
+          echo "target=x86_64-pc-windows-msvc" >> $GITHUB_OUTPUT
+        shell: bash
+
+      - name: Install GNU target (Windows Fallback)
+        if: matrix.platform.os == 'windows-latest' && steps.build_msvc.outcome == 'failure'
+        run: rustup target add x86_64-pc-windows-gnu
+
+      - name: Build binary (Windows GNU Fallback)
+        if: matrix.platform.os == 'windows-latest' && steps.build_msvc.outcome == 'failure'
+        id: build_gnu
+        run: |
+          cargo build --release --target x86_64-pc-windows-gnu
+          echo "target=x86_64-pc-windows-gnu" >> $GITHUB_OUTPUT
+        shell: bash
+
+      - name: Set Windows Final Target
+        if: matrix.platform.os == 'windows-latest'
+        id: win_target
+        run: |
+          if [ "${{ steps.build_msvc.outcome }}" == "success" ]; then
+            echo "val=x86_64-pc-windows-msvc" >> $GITHUB_OUTPUT
+          else
+            echo "val=x86_64-pc-windows-gnu" >> $GITHUB_OUTPUT
+          fi
+        shell: bash
 
       # macOS specific: Create .app bundle (Apple Silicon only)
       - name: Bundle macOS App
@@ -61,7 +93,7 @@ jobs:
         if: matrix.platform.os == 'windows-latest'
         run: |
           mkdir dist
-          cp target/${{ matrix.platform.target }}/release/softveil.exe dist/
+          cp target/${{ steps.win_target.outputs.val }}/release/softveil.exe dist/
           compress-archive -Path dist/* -DestinationPath ${{ matrix.platform.asset_name }}
         shell: pwsh
 
