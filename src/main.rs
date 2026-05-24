@@ -354,6 +354,17 @@ fn main() {
                     needs_animation = calc_needs_animation(&overlays, &state);
                 }
             Event::UserEvent(UserEvent::RunBenchmark) => {
+                #[cfg(target_os = "macos")]
+                {
+                    if !platform::has_screen_capture_access() {
+                        platform::show_error_dialog(
+                            "「画面収録」の許可が必要です",
+                            "ベンチマーク機能には画面収録の権限が必要です。\nシステム設定 > プライバシーとセキュリティ > 画面収録 で Softveil を許可してください。",
+                        );
+                        // Do not proceed if we are reasonably sure we don't have access
+                        return;
+                    }
+                }
                 logger!("Starting benchmark from UI...");
                 state.benchmark_progress = Some(0.0);
                 if let Some(ref t) = tray_handle {
@@ -393,7 +404,7 @@ fn main() {
                 
                 if let Some(ref t) = tray_handle {
                     t.set_tooltip(&format!("Softveil (ベンチマーク中: {:.0}%)", progress * 100.0));
-                    t.rebuild_menu(&state, &overlays);
+                    // Don't rebuild_menu here because it causes the menu to close on macOS
                 }
 
                 // 25% ごとに通知
@@ -816,6 +827,10 @@ fn main() {
                 if let Some(ref t) = tray_handle {
                     t.rebuild_menu(&state, &overlays);
                 }
+            } else if id == MENU_ID_QUIT {
+                println!("Menu: Quit");
+                state.restore_os_settings();
+                *control_flow = ControlFlow::Exit;
             }
         }
 

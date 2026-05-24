@@ -303,19 +303,23 @@ pub fn has_screen_capture_access() -> bool {
     #[link(name = "CoreGraphics", kind = "framework")]
     extern "C" {
         fn CGPreflightScreenCaptureAccess() -> bool;
+        fn CGMainDisplayID() -> u32;
     }
     unsafe {
-        // CGPreflightScreenCaptureAccess can sometimes return false negatives.
-        // If we are already running and have successfully captured before, 
-        // we might want to return true here to avoid redundant checks.
-        // For now, let's keep it but be aware of its limitations.
+        // First, check preflight (fast)
         if CGPreflightScreenCaptureAccess() {
             return true;
         }
         
-        // As a fallback, if we already showed the alert and the user said OK,
-        // we might be in a state where it returns false but works.
-        HAS_SHOWN_PERMISSION_ALERT.load(Ordering::Relaxed)
+        // If preflight returns false, it might be a false negative.
+        // Try a tiny capture to be absolutely sure.
+        let display_id = CGMainDisplayID();
+        if let Some(_img) = CGDisplay::new(display_id).image() {
+            // If we can get even a single frame, we have access.
+            return true;
+        }
+
+        false
     }
 }
 
@@ -327,14 +331,23 @@ pub fn is_dark_mode() -> bool {
 }
 
 pub fn set_dark_mode(enabled: bool) {
-    let source = format!(
-        "tell application \"System Events\" to tell appearance preferences to set dark mode to {}",
-        enabled
-    );
-    unsafe {
-        if let Some(script) = NSAppleScript::initWithSource(NSAppleScript::alloc(), &NSString::from_str(&source)) {
-            // executeAndReturnError: expects a pointer to an NSDictionary pointer for errors.
-            let _: *mut NSObject = msg_send![&*script, executeAndReturnError: std::ptr::null_mut::<*mut NSObject>()];
+    #[cfg(test)]
+    {
+        let _ = enabled;
+        return;
+    }
+
+    #[cfg(not(test))]
+    {
+        let source = format!(
+            "tell application \"System Events\" to tell appearance preferences to set dark mode to {}",
+            enabled
+        );
+        unsafe {
+            if let Some(script) = NSAppleScript::initWithSource(NSAppleScript::alloc(), &NSString::from_str(&source)) {
+                // executeAndReturnError: expects a pointer to an NSDictionary pointer for errors (^@).
+                let _: *mut NSObject = msg_send![&*script, executeAndReturnError: std::ptr::null_mut::<*mut NSObject>()];
+            }
         }
     }
 }
@@ -421,24 +434,30 @@ pub fn write_to_log_file(msg: &str) {
 }
 
 pub fn send_notification(title: &str, subtitle: &str, body: &str) {
-    let source = format!(
-        "display notification \"{}\" with title \"{}\" subtitle \"{}\"",
-        body.replace("\"", "\\\""),
-        title.replace("\"", "\\\""),
-        subtitle.replace("\"", "\\\"")
-    );
-    unsafe {
-        if let Some(script) = NSAppleScript::initWithSource(NSAppleScript::alloc(), &NSString::from_str(&source)) {
-            let _: *mut NSObject = msg_send![&*script, executeAndReturnError: std::ptr::null_mut::<*mut NSObject>()];
+    #[cfg(test)]
+    {
+        let _ = (title, subtitle, body);
+        return;
+    }
+
+    #[cfg(not(test))]
+    {
+        let source = format!(
+            "display notification \"{}\" with title \"{}\" subtitle \"{}\"",
+            body.replace("\"", "\\\""),
+            title.replace("\"", "\\\""),
+            subtitle.replace("\"", "\\\"")
+        );
+        unsafe {
+            if let Some(script) = NSAppleScript::initWithSource(NSAppleScript::alloc(), &NSString::from_str(&source)) {
+                let _: *mut NSObject = msg_send![&*script, executeAndReturnError: std::ptr::null_mut::<*mut NSObject>()];
+            }
         }
     }
 }
 
 use core_graphics::display::CGDisplay;
 use image::{RgbaImage, Rgba};
-use std::sync::atomic::{AtomicBool, Ordering};
-
-static HAS_SHOWN_PERMISSION_ALERT: AtomicBool = AtomicBool::new(false);
 
 pub fn capture_display(monitor_id: &MonitorId) -> Result<DynamicImage, String> {
     let display_id = if monitor_id.0 == 0 {
@@ -457,19 +476,8 @@ pub fn capture_display(monitor_id: &MonitorId) -> Result<DynamicImage, String> {
         Some(img) => img,
         None => {
             logger!("CGDisplay::image() returned None for display_id: {}", display_id);
-            
-            // None is not always due to lack of permissions (can be lock screen, first frame, etc.)
-            // Check actual permission status before deciding to alert.
-            let has_permission = has_screen_capture_access();
-
-            if !has_permission && !HAS_SHOWN_PERMISSION_ALERT.load(Ordering::Relaxed) {
-                // Only show custom dialog if we actually lack permissions.
-                show_error_dialog(
-                    "「画面収録」の許可が必要です",
-                    "ベンチマーク機能には画面収録の権限が必要です。\nシステム設定 > プライバシーとセキュリティ > 画面収録 で Softveil を許可してください。",
-                );
-                HAS_SHOWN_PERMISSION_ALERT.store(true, Ordering::Relaxed);
-            }
+            // We only return error here. Higher-level logic (e.g. UserEvent::RunBenchmark)
+            // can perform a more robust permission check if needed.
             return Err(format!("Failed to capture display {}", display_id));
         }
     };
