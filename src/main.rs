@@ -358,6 +358,24 @@ fn main() {
                     needs_animation = calc_needs_animation(&overlays, &state);
                 }
             Event::UserEvent(UserEvent::RunBenchmark(monitor_id)) => {
+                #[cfg(target_os = "macos")]
+                {
+                    if !state.screen_capture_authorized {
+                        if platform::preflight_screen_capture_access() {
+                            logger!("Screen capture permission confirmed before benchmark.");
+                            state.screen_capture_authorized = true;
+                            state.save();
+                        } else {
+                            logger!("Screen capture not authorized. Benchmark cancelled.");
+                            platform::show_error_dialog(
+                                "「画面収録」の許可が必要です",
+                                "ベンチマーク機能には画面収録の権限が必要です。\n\nシステム設定 > プライバシーとセキュリティ > 画面収録\nで Softveil を許可してから再試行してください。",
+                            );
+                            return;
+                        }
+                    }
+                }
+
                 logger!("Starting benchmark (monitor_id={:?}) from UI...", monitor_id);
                 state.benchmark_progress = Some(0.0);
                 if let Some(ref t) = tray_handle {

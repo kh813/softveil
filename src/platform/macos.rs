@@ -298,46 +298,22 @@ pub fn detect_panel_type(monitor: &MonitorHandle) -> PanelType {
     }
 }
 
+#[allow(dead_code)]
 pub fn has_screen_capture_access() -> bool {
+    preflight_screen_capture_access()
+}
+
+/// CGPreflightScreenCaptureAccess() のみを呼ぶ。
+/// キャプチャの実試行（CGDisplayCreateImageForRect）は行わない。
+/// → macOS 14+ で TCC ダイアログがトリガーされるのを防ぐ
+pub fn preflight_screen_capture_access() -> bool {
     // macOS 10.15+ (Catalina and later)
     #[link(name = "CoreGraphics", kind = "framework")]
     extern "C" {
         fn CGPreflightScreenCaptureAccess() -> bool;
-        fn CGMainDisplayID() -> u32;
-        fn CGDisplayCreateImageForRect(display: u32, rect: CGRect) -> *mut std::ffi::c_void;
     }
-    #[repr(C)]
-    struct CGRect { origin: CGPoint, size: CGSize }
-    #[repr(C)]
-    struct CGPoint { x: f64, y: f64 }
-    #[repr(C)]
-    struct CGSize { width: f64, height: f64 }
-
     unsafe {
-        // First, check preflight (fast)
-        if CGPreflightScreenCaptureAccess() {
-            return true;
-        }
-        
-        // If preflight returns false, it might be a false negative.
-        // Try a tiny 1x1 capture to be absolutely sure.
-        let display_id = CGMainDisplayID();
-        let rect = CGRect {
-            origin: CGPoint { x: 0.0, y: 0.0 },
-            size: CGSize { width: 1.0, height: 1.0 },
-        };
-        let image_ref = CGDisplayCreateImageForRect(display_id, rect);
-        if !image_ref.is_null() {
-            // Success! Release the image reference and return true.
-            #[link(name = "CoreFoundation", kind = "framework")]
-            extern "C" {
-                fn CFRelease(obj: *mut std::ffi::c_void);
-            }
-            CFRelease(image_ref);
-            return true;
-        }
-
-        false
+        CGPreflightScreenCaptureAccess()
     }
 }
 

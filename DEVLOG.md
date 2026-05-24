@@ -25,9 +25,16 @@
 
 <!-- 以下に実装ログを追記していく -->
 
-## 2026-05-24
+## 2026-05-25
 
-### Phase 14: 自動最適化と最終調整 (Automated Optimization & Final Polish)
+### macOS 画面収録権限ダイアログの重複表示バグ修正
+- **has_screen_capture_access の改善**: 1x1 キャプチャによる偽陰性チェックが macOS 14+ で TCC ダイアログをトリガーしていたため、これを削除し `CGPreflightScreenCaptureAccess` のみの `preflight_screen_capture_access` を導入。
+- **起動時チェックの追加**: アプリ起動時に権限をチェックし、許可されている場合は即座に `screen_capture_authorized` を `true` に設定して保存するように変更。
+- **ベンチマーク開始フローの修正**: ベンチマーク開始前に `preflight` チェックを行い、権限がない場合はカスタムダイアログを表示して中断するように変更。これにより、不意なシステムダイアログの表示を防止。
+
+### 既知の問題 / 持ち越し
+- TCC データベースのリセット（`tccutil reset ScreenCapture`）後の初回挙動の確認。
+
 - **ベンチマーク完了時の「最良設定」自動適用**:
     - ベンチマーク終了時、旅行中（飛行機・電車・カフェ）に最適な「Transit (Maximum)」プリセットを全モニターに対して自動適用するロジックを `src/main.rs` に実装。ユーザーの介入なしで即座に最強の保護状態へ移行可能に。
 - **HLCC (Stealth Light) の描画バグ修正**:

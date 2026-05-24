@@ -338,11 +338,11 @@
 - [x] 🍎 macOS: ベンチマーク進捗が 0% から動かない問題を修正（10% ごとのメニュー更新を導入） ✅
 - [x] 🍎 macOS: ステルス・ダークの AppleScript 実行をより堅牢に（エラーログ追加） ✅
 
-## Phase 12.4: macOS Permission UX Optimization 🧪 ✅
+## Phase 12.4: macOS Permission UX Optimization (Improved) 🧪 ✅
 
-- [x] 🍎 macOS: 起動時の画面収録権限ダイアログを撤廃（初期化時のチェック削除） ✅
-- [x] 🍎 macOS: 永続的な許可フラグ `screen_capture_authorized` の実装 ✅
-- [x] 🍎 macOS: ベンチマーク開始時の遅延・実測ベース判定ロジックの実装（1x1 キャプチャ & 非ブロック化） ✅
+- [x] 🍎 macOS: 起動時の画面収録権限ダイアログを撤廃し、非ブロッキングな起動時チェックを導入 ✅
+- [x] 🍎 macOS: 永続的な許可フラグ `screen_capture_authorized` の保存タイミングを適正化 ✅
+- [x] 🍎 macOS: TCC ダイアログをトリガーしない `preflight` ベースの判定への移行 ✅
 
 ## Phase 13: Menu UX & Performance Polish 🔁 ✅
 
