@@ -36,9 +36,11 @@ fn stable_noise(p: vec2<f32>) -> f32 {
 fn calc_louver(scrolled: f32, stripe_width: f32, edge_px: f32, base_alpha: f32, is_light_mode: bool) -> f32 {
     let s = scrolled;
     // Light Mode では「開口部（透明な部分）」のベース濃度を上げることで、画面全体の眩しさを抑え秘匿性を高める
-    let min_alpha_ratio = select(0.15, 0.40, is_light_mode);
-    
+    // NarrowMask では暗い部分を真っ黒にするため、ベース比率を下げる (0.15 -> 0.0, 0.40 -> 0.30)
+    let min_alpha_ratio = select(0.0, 0.30, is_light_mode);
+
     if (s < stripe_width) {
+
         let dist_from_edge = min(stripe_width - s, s);
         // 滑らかなエッジ処理（エイリアシング対策）
         let edge_factor = clamp(dist_from_edge / edge_px, 0.0, 1.0);
@@ -153,32 +155,28 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             return vec4<f32>(0.0, 0.0, 0.0, final_alpha);
             
         } else {
-            // LCD V8 Hybrid Shield (SPD Mode)
-            // Use full period and scroll speed for robust protection
-            let p = max(period_px * inten, 4.0);
-            let stripe_w = p * clamp(cover_ratio, 0.6, 0.85);
-            let edge = 1.0;
+            // LCD: NarrowMask Mode
+            // gap = 1px の窓を残して残りを完全黒 (alpha=1.0) で塞ぐ
+            let gap_px = 1.0;
+            let stripe_px = max(floor(1.0 / max(1.0 - cover_ratio, 0.1)), 1.0);
+            let p = gap_px + stripe_px;
             
-            // Slow continuous scrolls (faster than before to avoid aliasing pulses)
-            let base_speed = select(3.0, 0.0, scroll_speed_px < 0.01); 
-            let sx = t * (scroll_speed_px * 0.08 + base_speed);
-            let sy = t * (scroll_speed_px * 0.15 + base_speed * 2.0);
+            let scroll_x = ((x + t * scroll_speed_px) % p + p) % p;
             
-            // Horizontal and Vertical louver composite
-            let v_stripe = calc_louver(((x + sx) % p + p) % p, stripe_w, edge, alpha, is_light_mode);
-            var final_a = v_stripe;
+            // gap部分: alpha そのまま（ユーザー設定の明るさ）
+            // stripe部分: alpha = 1.0（完全遮蔽 / 真の黒）
+            let in_gap_x = scroll_x < gap_px;
+            let final_a_x = select(1.0, alpha, in_gap_x);
             
             if (bidirectional == 1u) {
-                let h_stripe = calc_louver(((y + sy) % p + p) % p, stripe_w, edge, alpha, is_light_mode);
-                final_a = max(final_a, h_stripe);
+                let scroll_y = ((y + t * scroll_speed_px * 0.7) % p + p) % p;
+                let in_gap_y = scroll_y < gap_px;
+                // 縦横どちらかが gap に入っている場合のみ明るい (OR合成)
+                let in_any_gap = in_gap_x || in_gap_y;
+                return vec4<f32>(0.0, 0.0, 0.0, select(1.0, alpha, in_any_gap));
             }
             
-            // Add a high-frequency distraction layer to break up OCR
-            let n = stable_noise(vec2<f32>(x, y) + floor(t * 12.0));
-            let noise = select(0.0, alpha * 0.2, n > 0.96);
-            
-            final_a = max(final_a, noise);
-            return vec4<f32>(0.0, 0.0, 0.0, final_a);
+            return vec4<f32>(0.0, 0.0, 0.0, final_a_x);
         }
     } else if (mode == 4u) {
         // ── StealthDark (Integrated Stealth Switch) ──────────────────

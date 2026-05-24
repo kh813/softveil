@@ -57,7 +57,7 @@ impl DisplayProfile {
                 category,
                 ppi: 157.0,
                 period_mm: 0.50,
-                cover_ratio: 0.55,
+                cover_ratio: 0.75,               // 0.55 -> 0.75 (NarrowMask 対応)
                 scroll_speed_mm_per_sec: 10.0,   // 0.0 -> 10.0（OCR 対策有効化。IPS 残像許容内）
                 phase_flip_hz: 0.0,
                 bidirectional: true,             // 横方向の覗き見保護を有効化
@@ -66,7 +66,7 @@ impl DisplayProfile {
                 category,
                 ppi: 220.0,
                 period_mm: 0.50,      // 0.40 -> 0.50（MacBook Air 224PPI で stripe=2.4px を確保）
-                cover_ratio: 0.55,    // 0.50 -> 0.55（stripe/gap バランスを均等化）
+                cover_ratio: 0.80,    // 0.55 -> 0.80（NarrowMask 対応: 暗い部分を大幅に増やす）
                 scroll_speed_mm_per_sec: 5.0,
                 phase_flip_hz: 0.0,
                 bidirectional: true,

@@ -320,4 +320,8 @@
     - [x] MacBook Air (HiDpi): `period_mm` / `cover_ratio` 調整による縞の視認性向上 ✅
     - [x] FHD Notebook: `scroll_speed` 有効化による OCR 対策とクロスルーバー化 ✅
     - [x] OLED (MacBook Pro): `alpha_base` 調整による正面視認性の改善 ✅
+- [x] **次世代 LCD 秘匿技術「NarrowMask」の実装 (New)** 🔁 ✅
+    - [x] `shader.wgsl`: 1px 窓を残して完全黒 (alpha=1.0) で塞ぐ NarrowMask ロジックの実装 ✅
+    - [x] `display_config.rs`: MacBook Air / FHD 向けの `cover_ratio` 最適化 (0.75 - 0.80) ✅
+    - [x] ドキュメント更新 (仕様書, マニュアル, DEVLOG) ✅
 

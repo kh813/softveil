@@ -261,6 +261,15 @@
     - `NotebookFhd`: `scroll_speed` を 10.0mm/s に設定し OCR 対策を有効化。また `bidirectional` を true にし横方向の覗き見保護を強化。
     - `HighIntensitySPD` (OLED): `alpha_base` を 0.88 に下げ、MacBook Pro 等の OLED パネルでの正面視認性を向上。
 
+## 2026-05-24 (Update 2)
+
+### Phase 12.2: 次世代 LCD 秘匿技術「NarrowMask」の実装
+- **アルゴリズムの刷新**: 「縞を描く」から「1px の開口部を残して完全黒で塞ぐ」アプローチへ転換。
+    - `shader.wgsl`: `HighIntensitySPD` (LCD) において、`alpha = 1.0` (完全黒) を使用した極小開口パターンを実装。
+    - `shader.wgsl`: `min_alpha_ratio` を 0.0 (ダークモード) / 0.30 (ライトモード) に調整し、遮蔽部分のコントラストを最大化。
+- **パラメーター最適化**:
+    - `display_config.rs`: MacBook Air 向け `cover_ratio` を 0.80、FHD 向けを 0.75 へ引き上げ、斜めからの遮蔽力を劇的に向上。
+
 ### バグ修正: macOS 権限ダイアログの重複表示
 - **冗長なダイアログの削除**: `CGDisplay::image()` が `None` を返した際に、権限の有無に関わらず `CGRequestScreenCaptureAccess()` を呼び出していた問題を修正。
 - **判定ロジックの改善**: `None` が返った際にまず `CGPreflightScreenCaptureAccess()` で実際の権限状態を確認するようにし、権限が不足している場合のみカスタムダイアログを表示するように変更。これにより、許可済みユーザーへの不要なシステムプロンプトを排除。
