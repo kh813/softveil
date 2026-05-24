@@ -14,6 +14,8 @@ pub struct AppConfig {
     pub display_settings: HashMap<String, DisplayConfig>,
     #[serde(default)]
     pub presets: Vec<Preset>,
+    #[serde(default)]
+    pub screen_capture_authorized: bool,
 }
 
 impl Default for AppConfig {
@@ -26,6 +28,7 @@ impl Default for AppConfig {
             ai_detection_enabled: false,
             display_settings: HashMap::new(),
             presets: Vec::new(),
+            screen_capture_authorized: false,
         }
     }
 }
@@ -48,6 +51,7 @@ pub struct AppState {
     pub is_stealth_light: bool,
     pub presets: Vec<Preset>,
     pub benchmark_progress: Option<f32>,
+    pub screen_capture_authorized: bool,
     stored_display_settings: HashMap<String, DisplayConfig>,
 }
 
@@ -78,6 +82,7 @@ impl AppState {
             is_stealth_light: false,
             presets: config.presets,
             benchmark_progress: None,
+            screen_capture_authorized: config.screen_capture_authorized,
             stored_display_settings: config.display_settings,
         }
     }
@@ -98,6 +103,7 @@ impl AppState {
             ai_detection_enabled: self.ai_detection_enabled,
             display_settings,
             presets: self.presets.clone(),
+            screen_capture_authorized: self.screen_capture_authorized,
         };
 
         let _ = confy::store(APP_NAME, None, config);

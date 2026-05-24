@@ -93,15 +93,6 @@ fn main() {
     let (bench_cmd_tx, bench_cmd_rx) = mpsc::channel::<BenchmarkCommand>();
     let mut current_bench_resp_tx: Option<mpsc::Sender<()>> = None;
 
-    // Phase 5: Check Screen Capture access (without automatic prompt)
-    #[cfg(target_os = "macos")]
-    {
-        if !platform::has_screen_capture_access() {
-            logger!("Screen capture access is not granted. Advanced Phase 5 features will be limited.");
-        } else {
-            logger!("Screen capture access is granted.");
-        }
-    }
     let gpu = match pollster::block_on(overlay::GpuContext::new()) {
         Some(ctx) => std::sync::Arc::new(ctx),
         None => {
@@ -358,15 +349,24 @@ fn main() {
             Event::UserEvent(UserEvent::RunBenchmark(monitor_id)) => {
                 #[cfg(target_os = "macos")]
                 {
-                    // Use request_screen_capture_access which handles the check and request natively.
-                    // If it returns false, it means we don't have access yet.
-                    if !platform::request_screen_capture_access() {
-                        platform::show_error_dialog(
-                            "「画面収録」の許可が必要です",
-                            "ベンチマーク機能には画面収録の権限が必要です。\nシステム設定 > プライバシーとセキュリティ > 画面収録 で Softveil を許可してください。",
-                        );
-                        // Do not proceed if we are reasonably sure we don't have access
-                        return;
+                    // 1. 過去に許可済みか確認
+                    if !state.screen_capture_authorized {
+                        // 2. 許可済みでない場合、実測（1x1キャプチャ）を試みる
+                        if platform::has_screen_capture_access() {
+                            // 成功したら記録して続行
+                            state.screen_capture_authorized = true;
+                            state.save();
+                        } else {
+                            // 3. 失敗した場合、システムダイアログを表示
+                            platform::request_screen_capture_access();
+                            
+                            platform::show_error_dialog(
+                                "「画面収録」の許可が必要です / Permission Required",
+                                "ベンチマーク機能には画面収録の権限が必要です。\n\n1. 表示されたシステムダイアログ（またはシステム設定）で Softveil を許可してください。\n2. 許可が完了しましたら、もう一度メニューから最適化を実行してください。\n\nPlease allow Screen Recording for Softveil in System Settings, then try again.",
+                            );
+                            // Do not proceed
+                            return;
+                        }
                     }
                 }
                 logger!("Starting benchmark (monitor_id={:?}) from UI...", monitor_id);
