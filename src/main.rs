@@ -358,24 +358,6 @@ fn main() {
                     needs_animation = calc_needs_animation(&overlays, &state);
                 }
             Event::UserEvent(UserEvent::RunBenchmark(monitor_id)) => {
-                #[cfg(target_os = "macos")]
-                {
-                    // 1. 過去に許可済みか確認
-                    if !state.screen_capture_authorized {
-                        logger!("Screen capture not yet authorized in config. Checking system permissions...");
-                        // 2. 許可済みでない場合、実測（1x1キャプチャ）を試みる
-                        if platform::has_screen_capture_access() {
-                            logger!("System permission check succeeded. Updating config.");
-                            state.screen_capture_authorized = true;
-                            state.save();
-                        } else {
-                            // 偽陽性の可能性があるため、ここではダイアログを出さず、ベンチマークスレッド内での実際の失敗を待つ
-                            logger!("System permission check failed (pre-flight). Proceeding to verify with actual capture...");
-                        }
-                    } else {
-                        logger!("Screen capture already authorized in config. Proceeding...");
-                    }
-                }
                 logger!("Starting benchmark (monitor_id={:?}) from UI...", monitor_id);
                 state.benchmark_progress = Some(0.0);
                 if let Some(ref t) = tray_handle {
@@ -444,8 +426,9 @@ fn main() {
                 
                 crate::platform::show_info_dialog(
                     "最適化完了 / Optimization Complete",
-                    &format!("性能測定と最適化が完了しました。\n\n【結果の要約】\n{}\n\n設定プリセットメニューから適用可能です。", summary)
+                    &format!("性能測定と最適化が完了しました。\n\n【結果の要約】\n{}\n\n外出先での利用に最適な「Transit (Maximum)」プロファイルを全画面に自動適用しました。", summary)
                 );
+
             }
             Event::UserEvent(UserEvent::DisplayChange) => {
                 let current_monitors: Vec<_> = event_loop_target.available_monitors().collect();

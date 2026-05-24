@@ -348,9 +348,18 @@ pub fn run_benchmark_threaded(
                                 });
                                 handles.push(handle);
                             }
-                            Err(e) => {
-                                logger!("Monitor {:?} capture failed: {}", id, e);
+                        Err(e) => {
+                            logger!("Monitor {:?} capture failed: {}", id, e);
+                            #[cfg(target_os = "macos")]
+                            {
+                                // If capture fails on macOS, it's almost certainly a permission issue.
+                                crate::platform::show_error_dialog(
+                                    "画面収録の許可が必要です / Screen Recording Access Required",
+                                    "ベンチマークを実行するには、システム設定で Softveil に「画面収録」の許可を与える必要があります。\n\n1. システム設定を開く\n2. プライバシーとセキュリティ ＞ 画面収録 を選択\n3. Softveil をオンにする\n\n許可設定の後、もう一度ベンチマークを実行してください。"
+                                );
+                                return; // Stop the whole benchmark thread
                             }
+                        }
                         }
                     }
 
@@ -423,6 +432,14 @@ pub fn run_benchmark_threaded(
                         }
                         Err(e) => {
                             logger!("Monitor {:?} capture failed during optimization: {}", id, e);
+                            #[cfg(target_os = "macos")]
+                            {
+                                crate::platform::show_error_dialog(
+                                    "画面収録の許可が必要です / Screen Recording Access Required",
+                                    "最適化プロセス中にキャプチャに失敗しました。システム設定で Softveil に「画面収録」の許可を与えた後、再実行してください。"
+                                );
+                                return;
+                            }
                         }
                     }
                 }
