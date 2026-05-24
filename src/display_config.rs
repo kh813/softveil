@@ -12,7 +12,6 @@ pub enum FilterMode {
     HighIntensitySPD,
     StealthDark,
     StealthLight,
-    StealthLightSubpixel,
 }
 
 /// ディスプレイの用途・サイズカテゴリ

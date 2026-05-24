@@ -209,8 +209,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             return vec4<f32>(glow, glow, glow, final_alpha);
         }
     } else if (mode == 5u) {
-        // ── StealthLight (Integrated Stealth Switch - Light Mode) ──
-        // Optimized for light environments. High-Luma Contrast Collapse (HLCC).
+        // ── StealthLight (Subpixel UHD Jamming) ──
+        // Optimized for light environments. Uses subpixel-level control to increase color shift.
         
         let subpixel_noise = stable_noise(vec2<f32>(floor(x * 3.0), floor(y))) * 0.15 * alpha;
 
@@ -222,55 +222,36 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             var alpha_main = select(alpha * 0.8, 0.0, is_slit);
             return vec4<f32>(base_dim, base_dim, base_dim, clamp(alpha_main + subpixel_noise, 0.0, 1.0));
         } else {
-            // LCD: High-Luma Contrast Collapse (HLCC) - Tuned for better readability
-            // 背景（白）を沈めるベースベール (dimming veil)
-            // 0.32 -> 0.22 に微調整。明るさを維持しつつコントラストを破壊。
-            let veil = 0.22 * alpha; 
-            
-            let p_raw = max(period_px * 0.5, 2.0);
+            // LCD: Subpixel UHD Jamming with HLCC (Contrast Collapse)
+            let p_raw = max(period_px * 0.4, 2.0);
             let p = u32(max(floor(p_raw), 2.0));
-            // 0.5px 相当の極細ライン
-            let is_fine_line = (u32(floor(x * 2.0)) % (p * 2u) < 1u);
-            // ラインの濃度も 0.85 -> 0.75 に微調整
-            let alpha_main = select(alpha * 0.75, 0.0, is_fine_line);
             
-            let final_alpha = clamp(alpha_main + subpixel_noise, 0.0, 1.0);
-            return vec4<f32>(veil, veil, veil, final_alpha);
+            let sx = in.tex_coords.x * width * 3.0;
+            let sy = in.tex_coords.y * height;
+            let sp_idx = u32(floor(sx)) % 3u;
+            
+            let veil = 0.22 * alpha;
+            
+            let shift = f32(sp_idx);
+            let is_fine_line = (u32(floor(sx + shift)) % (p * 3u) < 1u);
+            
+            let alpha_main = select(alpha * 0.7, 0.0, is_fine_line);
+            let noise = stable_noise(vec2<f32>(floor(sx), floor(sy))) * 0.1 * alpha;
+            
+            let final_a = clamp(alpha_main + noise, 0.0, 1.0);
+            
+            // Intentional chromatic aberration effect
+            let offset_scale = 0.06 * alpha;
+            let r_offset = select(0.0, offset_scale, sp_idx == 0u);
+            let b_offset = select(0.0, -offset_scale, sp_idx == 2u);
+            
+            return vec4<f32>(
+                clamp(veil + r_offset, 0.0, 1.0),
+                clamp(veil, 0.0, 1.0),
+                clamp(veil + b_offset, 0.0, 1.0),
+                final_a
+            );
         }
-    } else if (mode == 6u) {
-        // ── StealthLightSubpixel (Subpixel UHD Jamming) ──
-        // Highly granular subpixel-level control to increase color shift.
-        
-        let p_raw = max(period_px * 0.4, 2.0);
-        let p = u32(max(floor(p_raw), 2.0));
-        
-        // Subpixel coordinate (0.0 - width*3.0)
-        let sx = in.tex_coords.x * width * 3.0;
-        let sy = in.tex_coords.y * height;
-        let sp_idx = u32(floor(sx)) % 3u; // 0:R, 1:G, 2:B
-        
-        let veil = 0.20 * alpha;
-        
-        // Each channel has a slightly shifted pattern to maximize edge destruction
-        let shift = f32(sp_idx);
-        let is_fine_line = (u32(floor(sx + shift)) % (p * 3u) < 1u);
-        
-        let alpha_main = select(alpha * 0.7, 0.0, is_fine_line);
-        let noise = stable_noise(vec2<f32>(floor(sx), floor(sy))) * 0.1 * alpha;
-        
-        let final_a = clamp(alpha_main + noise, 0.0, 1.0);
-        
-        // Intentional chromatic aberration effect
-        let offset_scale = 0.06 * alpha;
-        let r_offset = select(0.0, offset_scale, sp_idx == 0u);
-        let b_offset = select(0.0, -offset_scale, sp_idx == 2u);
-        
-        return vec4<f32>(
-            clamp(veil + r_offset, 0.0, 1.0),
-            clamp(veil, 0.0, 1.0),
-            clamp(veil + b_offset, 0.0, 1.0),
-            final_a
-        );
     }
 
     return vec4<f32>(0.0, 0.0, 0.0, alpha);

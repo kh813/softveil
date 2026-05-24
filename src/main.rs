@@ -300,9 +300,19 @@ fn main() {
                         }
                         BenchmarkCommand::Finished(new_presets, summary) => {
                             println!("Benchmark finished. Received {} new presets.", new_presets.len());
-                            for preset in new_presets {
-                                state.save_preset(preset.name, preset.settings);
+                            for preset in &new_presets {
+                                state.save_preset(preset.name.clone(), preset.settings.clone());
                             }
+                            
+                            // Automatically apply "Transit (Maximum)" preset for each monitor if found
+                            for overlay in &overlays {
+                                let target_preset_name = format!("Transit (Maximum) - {}", overlay.monitor_name);
+                                if new_presets.iter().any(|p| p.name == target_preset_name) {
+                                    state.apply_preset(&target_preset_name, &overlay.monitor_id);
+                                    println!("Automatically applied preset: {}", target_preset_name);
+                                }
+                            }
+
                             if let Some(ref t) = tray_handle {
                                 t.set_benchmark_running(false);
                                 t.rebuild_menu(&state, &overlays);
@@ -587,7 +597,6 @@ fn main() {
                                     "HighIntensitySPD" => Some(FilterMode::HighIntensitySPD),
                                     "StealthDark" => Some(FilterMode::StealthDark),
                                     "StealthLight" => Some(FilterMode::StealthLight),
-                                    "StealthLightSubpixel" => Some(FilterMode::StealthLightSubpixel),
                                     _ => None,
                                 };
                             if let Some(m) = mode {

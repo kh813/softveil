@@ -354,5 +354,21 @@
 - [x] **メニューの部分更新 (Partial Update) の実装** ✅
 - [x] **個別モニター最適化のサポート** ✅
 - [x] **ドキュメントの更新 (MANUAL.md, 仕様書)** ✅
+## Phase 14: Automated Optimization & Final Polish 🧪 ✅
+
+**目的:** ベンチマーク完了時の自動最適化、視覚的バグの修正、および macOS でのシステム連携の安定化。
+
+- [x] **ベンチマーク完了時の「最良設定」自動適用** 🔁 ✅
+    - [x] 全モニターのベンチマーク完了後、最もスコアの高い設定（または「Transit」推奨設定）を自動適用するロジックの実装 ✅
+- [x] **🍎 macOS: ステルス・ダークのテーマ切替バグの修正** 🍎 ✅
+    - [x] macOS で `set_dark_mode` が確実に動作するよう AppleScript とシステムイベント権限を再検証（フォールバック実装追加） ✅
+- [x] **HLCC (Stealth Light) の描画バグ修正または統合** 🔁 ✅
+    - [x] `StealthLight (HLCC)` の不揃いな線（バグ）を修正、または `StealthLight (Subpixel)` へ一本化 ✅
+- [x] **ドキュメントの最終更新** 🔁 ✅
+    - [x] `MANUAL.md`, `Softveil_specs_v1_6.md` を最新の状態に同期 ✅
+
+---
+
+## Phase 15: リリース準備と品質保証 (Final) 🚀
 
 

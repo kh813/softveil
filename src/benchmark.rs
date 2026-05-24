@@ -30,7 +30,6 @@ pub fn run_benchmark(gpu: Arc<GpuContext>, mut state: AppState, overlays: &mut V
         FilterMode::HighIntensitySPD,
         FilterMode::StealthDark,
         FilterMode::StealthLight,
-        FilterMode::StealthLightSubpixel,
     ];
     
     // More realistic Alpha range for evaluation
@@ -285,7 +284,6 @@ pub fn run_benchmark_threaded(
         FilterMode::HighIntensitySPD,
         FilterMode::StealthDark,
         FilterMode::StealthLight,
-        FilterMode::StealthLightSubpixel,
     ];
     let alphas = [0.1, 0.3, 0.5];
     
@@ -472,7 +470,7 @@ fn get_benchmark_results_dir() -> std::path::PathBuf {
 }
 
 
-fn generate_recommended_presets_for_monitor(opt_period: f32, opt_cover: f32, monitor_name: &str) -> Vec<crate::display_config::Preset> {
+pub fn generate_recommended_presets_for_monitor(opt_period: f32, opt_cover: f32, monitor_name: &str) -> Vec<crate::display_config::Preset> {
     use crate::display_config::{FilterSettings, Preset};
     
     let base_presets = [

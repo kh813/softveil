@@ -171,7 +171,7 @@ impl AppState {
         }
 
         let any_stealth_dark = self.displays.values().any(|c| c.enabled && c.filter_mode == FilterMode::StealthDark);
-        let any_stealth_light = self.displays.values().any(|c| c.enabled && (c.filter_mode == FilterMode::StealthLight || c.filter_mode == FilterMode::StealthLightSubpixel));
+        let any_stealth_light = self.displays.values().any(|c| c.enabled && c.filter_mode == FilterMode::StealthLight);
         
         if (any_stealth_dark || any_stealth_light) && self.stealth_snapshot.is_none() {
             // Activate stealth mode

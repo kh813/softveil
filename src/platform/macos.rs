@@ -6,8 +6,8 @@ use tao::platform::macos::WindowExtMacOS;
 use crate::display_config::{MonitorId, PanelType};
 use crate::platform::DisplayChangeEvent;
 use objc2_app_kit::{NSWindow, NSWindowCollectionBehavior, NSColor, NSScreen, NSAlert};
-use objc2_foundation::{NSNotificationCenter, NSDistributedNotificationCenter, NSString, NSObject, NSNotification, NSUserDefaults, NSAppleScript};
-use objc2::{msg_send, rc::Retained, MainThreadMarker, AnyThread};
+use objc2_foundation::{NSNotificationCenter, NSDistributedNotificationCenter, NSString, NSObject, NSNotification, NSUserDefaults};
+use objc2::{msg_send, rc::Retained, MainThreadMarker};
 use block2::StackBlock;
 use std::sync::{Mutex, mpsc};
 use std::collections::HashMap;
@@ -374,21 +374,27 @@ pub fn set_dark_mode(enabled: bool) {
 
     #[cfg(not(test))]
     {
-        let source = if enabled {
-            "tell application \"System Events\" to tell appearance preferences to set dark mode to true"
-        } else {
-            "tell application \"System Events\" to tell appearance preferences to set dark mode to false"
-        };
+        let state = if enabled { "true" } else { "false" };
+        let cmd = format!("tell application \"System Events\" to tell appearance preferences to set dark mode to {}", state);
         
+        // Try NSAppleScript first
         unsafe {
-            if let Some(script) = NSAppleScript::initWithSource(NSAppleScript::alloc(), &NSString::from_str(source)) {
+            if let Some(script) = NSAppleScript::initWithSource(NSAppleScript::alloc(), &NSString::from_str(&cmd)) {
                 let mut error: *mut NSObject = std::ptr::null_mut();
                 let _: *mut NSObject = msg_send![&*script, executeAndReturnError: &mut error];
-                if !error.is_null() {
+                if error.is_null() {
+                    return;
+                } else {
                     logger!("NSAppleScript Error in set_dark_mode: {:?}", error);
                 }
             }
         }
+
+        // Fallback to osascript CLI if NSAppleScript fails
+        let _ = std::process::Command::new("osascript")
+            .arg("-e")
+            .arg(&cmd)
+            .output();
     }
 }
 

@@ -122,7 +122,7 @@ impl TrayHandle {
     }
 }
 
-fn build_menu(state: &AppState, overlays: &[OverlayWindow]) -> (Menu, HashMap<Option<MonitorId>, MenuItem>) {
+pub fn build_menu(state: &AppState, overlays: &[OverlayWindow]) -> (Menu, HashMap<Option<MonitorId>, MenuItem>) {
     let menu = Menu::new();
     let mut benchmark_items = HashMap::new();
 
@@ -173,8 +173,7 @@ fn build_menu(state: &AppState, overlays: &[OverlayWindow]) -> (Menu, HashMap<Op
         let modes = [
             (FilterMode::HighIntensitySPD,    "SPD プロテクト ✦ (推奨)"),
             (FilterMode::StealthDark,         "ステルス・ダーク (LLCC)"),
-            (FilterMode::StealthLight,        "ステルス・ライト (HLCC)"),
-            (FilterMode::StealthLightSubpixel, "ステルス・ライト (Subpixel)"),
+            (FilterMode::StealthLight,        "ステルス・ライト (Subpixel)"),
             (FilterMode::VerticalLouver,      "標準ルーバー"),
             (FilterMode::AIOcrInterference,   "AI OCR 妨害"),
             (FilterMode::BlackLayer,          "単色（輝度を抑える）"),
