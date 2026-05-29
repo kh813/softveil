@@ -73,10 +73,11 @@ mod tests {
         let mode_val = match mode {
             FilterMode::BlackLayer => 0.0,
             FilterMode::VerticalLouver => 1.0,
-            FilterMode::AIOcrInterference => 2.0,
+            FilterMode::OcrJammer => 2.0,
             FilterMode::HighIntensitySPD => 3.0,
             FilterMode::StealthDark => 4.0,
             FilterMode::StealthLight => 5.0,
+            FilterMode::AIVigilance => 6.0,
         };
         assert_eq!(mode_val, 5.0);
     }

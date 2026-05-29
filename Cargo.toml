@@ -1,6 +1,6 @@
 [package]
 name = "softveil"
-version = "0.1.22"
+version = "0.1.23"
 edition = "2021"
 description = "Software privacy filter for macOS and Windows"
 
@@ -37,6 +37,7 @@ auto-launch = "0.5"
 # ── AI 覗き見検知 (Phase 3) ──────────────────────────────────
 nokhwa     = { version = "0.10", features = ["input-native"] }
 tract-onnx = "0.21"
+sys-locale = "0.3.2"
 
 # ── macOS ネイティブ API ────────────────────────────────────────
 [target.'cfg(target_os = "macos")'.dependencies]

@@ -26,7 +26,7 @@ pub fn run_benchmark(gpu: Arc<GpuContext>, mut state: AppState, overlays: &mut V
     let filter_modes = [
         FilterMode::BlackLayer,
         FilterMode::VerticalLouver,
-        FilterMode::AIOcrInterference,
+        FilterMode::OcrJammer,
         FilterMode::HighIntensitySPD,
         FilterMode::StealthDark,
         FilterMode::StealthLight,
@@ -280,7 +280,7 @@ pub fn run_benchmark_threaded(
     let filter_modes = [
         FilterMode::BlackLayer,
         FilterMode::VerticalLouver,
-        FilterMode::AIOcrInterference,
+        FilterMode::OcrJammer,
         FilterMode::HighIntensitySPD,
         FilterMode::StealthDark,
         FilterMode::StealthLight,

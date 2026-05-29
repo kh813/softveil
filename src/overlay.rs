@@ -233,7 +233,14 @@ impl OverlayWindow {
         let size = self.window.inner_size();
 
         // DisplayProfile を取得
-        let config_ref = state.displays.get(&self.monitor_id).cloned().unwrap_or_default();
+        let mut config_ref = state.displays.get(&self.monitor_id).cloned().unwrap_or_default();
+        
+        let is_ai_vigilance_active = config_ref.filter_mode == FilterMode::AIVigilance && state.ai_peeper_detected;
+        if is_ai_vigilance_active {
+            let (active_mode, _) = state.get_ai_vigilance_active_settings(&self.monitor_id);
+            config_ref.filter_mode = active_mode;
+        }
+        
         let profile = config_ref.get_effective_profile();
         let ppi = state.displays.get(&self.monitor_id).map(|c| c.ppi).unwrap_or(110.0);
         let luminance_compress = (0.20f32 / profile.intensity_scale()).clamp(0.10, 0.35);
@@ -241,10 +248,26 @@ impl OverlayWindow {
         let mode_val = match state.filter_mode(&self.monitor_id) {
             FilterMode::BlackLayer => 0.0,
             FilterMode::VerticalLouver => 1.0,
-            FilterMode::AIOcrInterference => 2.0,
+            FilterMode::OcrJammer => 2.0,
             FilterMode::HighIntensitySPD => 3.0,
             FilterMode::StealthDark => 4.0,
             FilterMode::StealthLight => 5.0,
+            FilterMode::AIVigilance => {
+                if state.ai_peeper_detected {
+                    let (active_mode, _) = state.get_ai_vigilance_active_settings(&self.monitor_id);
+                    match active_mode {
+                        FilterMode::BlackLayer => 0.0,
+                        FilterMode::VerticalLouver => 1.0,
+                        FilterMode::OcrJammer => 2.0,
+                        FilterMode::HighIntensitySPD => 3.0,
+                        FilterMode::StealthDark => 4.0,
+                        FilterMode::StealthLight => 5.0,
+                        FilterMode::AIVigilance => 3.0,
+                    }
+                } else {
+                    0.0
+                }
+            }
         };
 
         let effective_mode = mode_val;

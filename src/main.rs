@@ -9,6 +9,7 @@ mod tray;
 mod hotkey;
 mod ai_detection;
 mod benchmark;
+pub mod i18n;
 
 #[cfg(test)]
 mod tests;
@@ -19,10 +20,10 @@ use tray::{
     TrayHandle, MENU_ID_GLOBAL_TOGGLE, MENU_ID_DISPLAY_TOGGLE_PREFIX, MENU_ID_ALPHA_PREFIX, 
     MENU_ID_MODE_PREFIX, MENU_ID_PANEL_PREFIX, MENU_ID_CATEGORY_PREFIX, MENU_ID_INTENSITY_PREFIX, 
     MENU_ID_OVERRIDE_PERIOD_PREFIX, MENU_ID_OVERRIDE_COVER_PREFIX, MENU_ID_OVERRIDE_SPEED_PREFIX,
-    MENU_ID_RESET_RECOMMENDED, MENU_ID_AUTO_START, MENU_ID_AI_DETECTION,
+    MENU_ID_RESET_RECOMMENDED, MENU_ID_AUTO_START, 
+    MENU_ID_AI_MODE_OFF, MENU_ID_AI_MODE_VIGILANCE, MENU_ID_AI_MODE_ENHANCED,
     MENU_ID_PRESET_APPLY_PREFIX, MENU_ID_PRESET_DELETE_PREFIX, MENU_ID_PRESET_SAVE_CURRENT,
     MENU_ID_RUN_BENCHMARK_ALL, MENU_ID_RUN_BENCHMARK_PREFIX, MENU_ID_QUIT,
-
 };
 use ai_detection::{AIDetectionCommand, start_detection_thread};
 use auto_launch::AutoLaunchBuilder;
@@ -31,6 +32,7 @@ use tao::event_loop::ControlFlow;
 use tao::event::Event;
 use muda::MenuEvent;
 use std::sync::mpsc;
+use crate::i18n::t;
 
 #[derive(Debug)]
 pub enum UserEvent {
@@ -97,9 +99,9 @@ fn main() {
     let gpu = match pollster::block_on(overlay::GpuContext::new()) {
         Some(ctx) => std::sync::Arc::new(ctx),
         None => {
-            let msg = "GPUの初期化に失敗しました。グラフィックドライバーが最新であることを確認してください。\nFailed to initialize GPU. Please ensure your graphics drivers are up to date.";
+            let msg = t("GPUの初期化に失敗しました。グラフィックドライバーが最新であることを確認してください。", "Failed to initialize GPU. Please ensure your graphics drivers are up to date.");
             eprintln!("{}", msg);
-            platform::show_error_dialog("Softveil Error", msg);
+            platform::show_error_dialog(t("Softveil エラー", "Softveil Error"), msg);
             std::process::exit(1);
         }
     };
@@ -156,8 +158,8 @@ fn main() {
         Err(e) => {
             eprintln!("Failed to register hotkey: {:?}", e);
             platform::show_error_dialog(
-                "Softveil Warning",
-                "グローバルショートカット（Ctrl+Shift+P）の登録に失敗しました。他のアプリと競合している可能性があります。\nFailed to register global hotkey (Ctrl+Shift+P). It might be in use by another application."
+                t("Softveil 警告", "Softveil Warning"),
+                t("グローバルショートカット（Ctrl+Shift+P）の登録に失敗しました。他のアプリと競合している可能性があります。", "Failed to register global hotkey (Ctrl+Shift+P). It might be in use by another application.")
             );
             None
         }
@@ -207,6 +209,8 @@ fn main() {
     let (ai_cmd_tx, ai_cmd_rx) = mpsc::channel();
     let (ai_event_tx, ai_event_rx) = mpsc::channel();
     start_detection_thread(ai_cmd_rx, ai_event_tx);
+
+    state.check_ai_vigilance_activation();
 
     if state.ai_detection_enabled {
         let _ = ai_cmd_tx.send(AIDetectionCommand::Start);
@@ -342,7 +346,9 @@ fn main() {
             // Handle Hotkey events via UserEvent
             Event::UserEvent(UserEvent::Hotkey(HotkeyEvent::ToggleGlobal)) => {
                 println!("Event: Toggle Global (Hotkey)");
+                let was_enabled = state.ai_detection_enabled;
                 state.toggle_global();
+                sync_ai_thread_with_state(&mut state, was_enabled, &ai_cmd_tx);
                 state.save();
                 overlay::sync_all(&mut overlays, &state, &gpu);
                 needs_animation = calc_needs_animation(&overlays, &state);
@@ -368,8 +374,8 @@ fn main() {
                         } else {
                             logger!("Screen capture not authorized. Benchmark cancelled.");
                             platform::show_error_dialog(
-                                "「画面収録」の許可が必要です",
-                                "ベンチマーク機能には画面収録の権限が必要です。\n\nシステム設定 > プライバシーとセキュリティ > 画面収録\nで Softveil を許可してから再試行してください。",
+                                t("「画面収録」の許可が必要です", "Screen Recording Permission Required"),
+                                t("ベンチマーク機能には画面収録の権限が必要です。\n\nシステム設定 > プライバシーとセキュリティ > 画面収録\nで Softveil を許可してから再試行してください。", "Benchmark requires Screen Recording permission.\n\nPlease allow Softveil in System Settings > Privacy & Security > Screen Recording, and try again."),
                             );
                             return;
                         }
@@ -383,7 +389,7 @@ fn main() {
                     t.update_benchmark_progress(0.0, monitor_id);
                 }
 
-                platform::send_notification("Softveil", "ベンチマーク開始", "画面の最適化測定を開始しました。完了までしばらくお待ちください。");
+                platform::send_notification("Softveil", t("ベンチマーク開始", "Benchmark Started"), t("画面の最適化測定を開始しました。完了までしばらくお待ちください。", "Optimization process started. Please wait."));
                 
                 let monitor_info: Vec<(MonitorId, String)> = overlays.iter()
                     .filter(|o| monitor_id.is_none() || monitor_id == Some(o.monitor_id))
@@ -430,7 +436,7 @@ fn main() {
 
                 // 25% ごとに通知
                 if (progress * 4.0).floor() > (_old_progress * 4.0).floor() {
-                    platform::send_notification("Softveil", "最適化進行中", &format!("進捗: {:.0}%", progress * 100.0));
+                    platform::send_notification("Softveil", t("最適化進行中", "Optimizing"), &format!("{}: {:.0}%", t("進捗", "Progress"), progress * 100.0));
                 }
             }
             Event::UserEvent(UserEvent::BenchmarkFinished(ref summary)) => {
@@ -440,15 +446,18 @@ fn main() {
                     t.rebuild_menu(&state, &overlays);
                 }
 
-                platform::send_notification("Softveil", "最適化完了", "性能測定が完了しました。");
+                platform::send_notification("Softveil", t("最適化完了", "Optimization Complete"), t("性能測定が完了しました。", "Performance benchmark completed."));
                 
-                crate::platform::show_info_dialog(
-                    "最適化完了 / Optimization Complete",
-                    &format!("性能測定と最適化が完了しました。\n\n【結果の要約】\n{}\n\n外出先での利用に最適な「Transit (Maximum)」プロファイルを全画面に自動適用しました。", summary)
-                );
+                let body = if crate::i18n::get_language() == crate::i18n::Language::Ja {
+                    format!("性能測定と最適化が完了しました。\n\n【結果の要約】\n{}\n\n外出先での利用に最適な「Transit (Maximum)」プロファイルを全画面に自動適用しました。", summary)
+                } else {
+                    format!("Benchmark and optimization complete.\n\n[Summary]\n{}\n\nThe \"Transit (Maximum)\" profile, ideal for outdoor use, has been automatically applied to all screens.", summary)
+                };
+                crate::platform::show_info_dialog(t("最適化完了", "Optimization Complete"), &body);
 
             }
             Event::UserEvent(UserEvent::DisplayChange) => {
+                let was_enabled = state.ai_detection_enabled;
                 let current_monitors: Vec<_> = event_loop_target.available_monitors().collect();
                 let current_ids: Vec<MonitorId> = current_monitors.iter().map(MonitorId::from_monitor).collect();
                 
@@ -517,6 +526,7 @@ fn main() {
                         t.rebuild_menu(&state, &overlays);
                     }
                     state.check_stealth_transition();
+                    sync_ai_thread_with_state(&mut state, was_enabled, &ai_cmd_tx);
                     state.save();
                     needs_animation = calc_needs_animation(&overlays, &state);
                 } else {
@@ -538,6 +548,7 @@ fn main() {
 
         // Handle Menu events (these usually trigger events themselves)
         if let Ok(menu_event) = menu_channel.try_recv() {
+            let was_enabled = state.ai_detection_enabled;
             let id = menu_event.id.0;
             if id == MENU_ID_GLOBAL_TOGGLE {
                 println!("Menu: Toggle Global");
@@ -594,10 +605,11 @@ fn main() {
                                 let mode = match mode_str {
                                     "BlackLayer" => Some(FilterMode::BlackLayer),
                                     "VerticalLouver" => Some(FilterMode::VerticalLouver),
-                                    "AIOcrInterference" => Some(FilterMode::AIOcrInterference),
+                                    "AIOcrInterference" | "OcrJammer" => Some(FilterMode::OcrJammer),
                                     "HighIntensitySPD" => Some(FilterMode::HighIntensitySPD),
                                     "StealthDark" => Some(FilterMode::StealthDark),
                                     "StealthLight" => Some(FilterMode::StealthLight),
+                                    "AIVigilance" => Some(FilterMode::AIVigilance),
                                     _ => None,
                                 };
                             if let Some(m) = mode {
@@ -772,14 +784,30 @@ fn main() {
                         }
                     }
                 }
-            } else if id == MENU_ID_AI_DETECTION {
-                println!("Menu: Toggle AI Detection");
-                let enabled = state.toggle_ai_detection();
-                if enabled {
-                    let _ = ai_cmd_tx.send(AIDetectionCommand::Start);
-                } else {
-                    let _ = ai_cmd_tx.send(AIDetectionCommand::Stop);
+            } else if id == MENU_ID_AI_MODE_OFF {
+                println!("Menu: Set AI Mode to Off");
+                state.ai_detection_enabled = false;
+                state.ai_vigilance_mode = false;
+                state.ai_peeper_detected = false;
+                let _ = ai_cmd_tx.send(AIDetectionCommand::Stop);
+                state.save();
+                if let Some(ref t) = tray_handle {
+                    t.rebuild_menu(&state, &overlays);
                 }
+            } else if id == MENU_ID_AI_MODE_VIGILANCE {
+                println!("Menu: Set AI Mode to Vigilance");
+                state.ai_detection_enabled = true;
+                state.ai_vigilance_mode = true;
+                let _ = ai_cmd_tx.send(AIDetectionCommand::Start);
+                state.save();
+                if let Some(ref t) = tray_handle {
+                    t.rebuild_menu(&state, &overlays);
+                }
+            } else if id == MENU_ID_AI_MODE_ENHANCED {
+                println!("Menu: Set AI Mode to Enhanced");
+                state.ai_detection_enabled = true;
+                state.ai_vigilance_mode = false;
+                let _ = ai_cmd_tx.send(AIDetectionCommand::Start);
                 state.save();
                 if let Some(ref t) = tray_handle {
                     t.rebuild_menu(&state, &overlays);
@@ -859,6 +887,7 @@ fn main() {
                 state.restore_os_settings();
                 *control_flow = ControlFlow::Exit;
             }
+            sync_ai_thread_with_state(&mut state, was_enabled, &ai_cmd_tx);
         }
 
         if let Event::WindowEvent {
@@ -880,6 +909,9 @@ fn calc_needs_animation(overlays: &[overlay::OverlayWindow], state: &AppState) -
         if matches!(mode, FilterMode::BlackLayer) {
             return false;
         }
+        if matches!(mode, FilterMode::AIVigilance) && !state.ai_peeper_detected {
+            return false;
+        }
 
         // DisplayConfig から実効プロファイルを取得してアニメーションが必要か判定
         if let Some(config) = state.displays.get(&o.monitor_id) {
@@ -890,4 +922,19 @@ fn calc_needs_animation(overlays: &[overlay::OverlayWindow], state: &AppState) -
             false
         }
     })
+}
+
+fn sync_ai_thread_with_state(
+    state: &mut AppState,
+    was_enabled: bool,
+    ai_cmd_tx: &mpsc::Sender<AIDetectionCommand>,
+) {
+    state.check_ai_vigilance_activation();
+    if state.ai_detection_enabled != was_enabled {
+        if state.ai_detection_enabled {
+            let _ = ai_cmd_tx.send(AIDetectionCommand::Start);
+        } else {
+            let _ = ai_cmd_tx.send(AIDetectionCommand::Stop);
+        }
+    }
 }

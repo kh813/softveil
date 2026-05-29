@@ -1,3 +1,4 @@
+#![allow(unused_imports)]
 use tao::monitor::MonitorHandle;
 use tao::window::Window;
 use crate::logger;

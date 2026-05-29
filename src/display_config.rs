@@ -8,10 +8,12 @@ use serde::{Serialize, Deserialize};
 pub enum FilterMode {
     BlackLayer,
     VerticalLouver,
-    AIOcrInterference,
+    #[serde(alias = "AIOcrInterference")]
+    OcrJammer,
     HighIntensitySPD,
     StealthDark,
     StealthLight,
+    AIVigilance,
 }
 
 /// ディスプレイの用途・サイズカテゴリ

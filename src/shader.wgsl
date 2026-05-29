@@ -114,7 +114,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         return vec4<f32>(0.0, 0.0, 0.0, alpha_out);
 
     } else if (mode == 2u) {
-        // ── AIOcrInterference (Phase 5: Subpixel UHD Jamming Prototype) ──
+        // ── OcrJammer (Phase 5: Subpixel UHD Jamming Prototype) ──
         let p = max(period_px * 0.4 * max(inten, 0.2), 1.0);
         let row = i32(floor(y / p));
         let x_off = select(0.0, p * 0.5, row % 2 == 0);

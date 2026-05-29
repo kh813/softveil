@@ -11,6 +11,8 @@ pub struct AppConfig {
     pub default_filter_mode: FilterMode,
     pub auto_start: bool,
     pub ai_detection_enabled: bool,
+    #[serde(default)]
+    pub ai_vigilance_mode: bool,
     pub display_settings: HashMap<String, DisplayConfig>,
     #[serde(default)]
     pub presets: Vec<Preset>,
@@ -26,6 +28,7 @@ impl Default for AppConfig {
             default_filter_mode: FilterMode::BlackLayer,
             auto_start: false,
             ai_detection_enabled: false,
+            ai_vigilance_mode: false,
             display_settings: HashMap::new(),
             presets: Vec::new(),
             screen_capture_authorized: false,
@@ -47,6 +50,7 @@ pub struct AppState {
     pub auto_start: bool,
     pub ai_detection_enabled: bool,
     pub ai_peeper_detected: bool,
+    pub ai_vigilance_mode: bool,
     pub stealth_snapshot: Option<OSSettingsSnapshot>,
     pub is_stealth_light: bool,
     pub presets: Vec<Preset>,
@@ -78,6 +82,7 @@ impl AppState {
             auto_start: config.auto_start,
             ai_detection_enabled: config.ai_detection_enabled,
             ai_peeper_detected: false,
+            ai_vigilance_mode: config.ai_vigilance_mode,
             stealth_snapshot: None,
             is_stealth_light: false,
             presets: config.presets,
@@ -101,6 +106,7 @@ impl AppState {
             default_filter_mode: self.default_config.filter_mode,
             auto_start: self.auto_start,
             ai_detection_enabled: self.ai_detection_enabled,
+            ai_vigilance_mode: self.ai_vigilance_mode,
             display_settings,
             presets: self.presets.clone(),
             screen_capture_authorized: self.screen_capture_authorized,
@@ -123,6 +129,7 @@ impl AppState {
             if let Some(config) = self.displays.get_mut(id) {
                 config.apply_settings(&preset.settings);
                 self.check_stealth_transition();
+                self.check_ai_vigilance_activation();
                 self.save();
             }
         }
@@ -134,6 +141,7 @@ impl AppState {
                 config.apply_settings(&preset.settings);
             }
             self.check_stealth_transition();
+            self.check_ai_vigilance_activation();
             self.save();
         }
     }
@@ -143,10 +151,12 @@ impl AppState {
         self.save();
     }
 
+    #[allow(dead_code)]
     pub fn toggle_ai_detection(&mut self) -> bool {
         self.ai_detection_enabled = !self.ai_detection_enabled;
         if !self.ai_detection_enabled {
             self.ai_peeper_detected = false;
+            self.ai_vigilance_mode = false;
         }
         self.ai_detection_enabled
     }
@@ -155,11 +165,33 @@ impl AppState {
         self.ai_peeper_detected = detected;
     }
 
+    pub fn check_ai_vigilance_activation(&mut self) -> bool {
+        if !self.global_enabled {
+            return false;
+        }
+        let any_ai_vigilance = self.ai_vigilance_mode ||
+            self.displays.values().any(|c| c.enabled && c.filter_mode == FilterMode::AIVigilance);
+        
+        if any_ai_vigilance {
+            if !self.ai_detection_enabled {
+                self.ai_detection_enabled = true;
+                return true;
+            }
+        } else {
+            if self.ai_detection_enabled {
+                self.ai_detection_enabled = false;
+                return true;
+            }
+        }
+        false
+    }
+
     pub fn set_filter_mode(&mut self, id: &MonitorId, mode: FilterMode) {
         if let Some(config) = self.displays.get_mut(id) {
             config.filter_mode = mode;
         }
         self.check_stealth_transition();
+        self.check_ai_vigilance_activation();
     }
 
     pub fn check_stealth_transition(&mut self) {
@@ -208,6 +240,7 @@ impl AppState {
     pub fn toggle_global(&mut self) -> bool {
         self.global_enabled = !self.global_enabled;
         self.check_stealth_transition();
+        self.check_ai_vigilance_activation();
         self.global_enabled
     }
 
@@ -219,6 +252,7 @@ impl AppState {
             false
         };
         self.check_stealth_transition();
+        self.check_ai_vigilance_activation();
         enabled
     }
 
@@ -363,7 +397,67 @@ impl AppState {
         self.displays.values().all(|c| c.enabled)
     }
 
+    pub fn get_ai_vigilance_active_settings(&self, id: &MonitorId) -> (FilterMode, f32) {
+        let config = self.displays.get(id).cloned().unwrap_or_default();
+        
+        let mut chosen_mode = None;
+        let mut chosen_alpha = None;
+        
+        // 1. プリセットから適用可能なものを探索
+        if !self.presets.is_empty() {
+            if let Some(p) = self.presets.iter().find(|p| p.name.to_lowercase().contains("high") || p.name.to_lowercase().contains("transit")) {
+                chosen_mode = Some(p.settings.filter_mode);
+                chosen_alpha = Some(p.settings.alpha);
+            } else if let Some(p) = self.presets.iter().find(|p| p.name.to_lowercase().contains("office") || p.name.to_lowercase().contains("standard")) {
+                chosen_mode = Some(p.settings.filter_mode);
+                chosen_alpha = Some(p.settings.alpha);
+            } else if let Some(p) = self.presets.first() {
+                chosen_mode = Some(p.settings.filter_mode);
+                chosen_alpha = Some(p.settings.alpha);
+            }
+        }
+        
+        // 2. プリセットがなければ、モニター種別（パネル種別）に応じたお勧め設定を自動判定
+        let mode = chosen_mode.unwrap_or_else(|| {
+            match config.panel_type {
+                crate::display_config::PanelType::Oled => FilterMode::HighIntensitySPD,
+                crate::display_config::PanelType::LcdIps => {
+                    if crate::platform::is_dark_mode() {
+                        FilterMode::StealthDark
+                    } else {
+                        FilterMode::StealthLight
+                    }
+                }
+                crate::display_config::PanelType::LcdTn => FilterMode::HighIntensitySPD,
+                crate::display_config::PanelType::Unknown => FilterMode::HighIntensitySPD,
+            }
+        });
+        
+        // 覗き見検知時は強力な保護が必要なため、プリセットがない場合のデフォルト濃度は 80% (0.8) とする
+        let alpha = chosen_alpha.unwrap_or(0.80);
+        
+        (mode, alpha)
+    }
+
     pub fn effective_alpha_u8(&self, id: &MonitorId) -> u8 {
+        if self.ai_vigilance_mode {
+            if self.ai_peeper_detected {
+                let (_, active_alpha) = self.get_ai_vigilance_active_settings(id);
+                return (active_alpha * 255.0).round() as u8;
+            } else {
+                return 0; // Completely transparent normally
+            }
+        }
+        if let Some(config) = self.displays.get(id) {
+            if config.filter_mode == FilterMode::AIVigilance {
+                if self.ai_peeper_detected {
+                    let (_, active_alpha) = self.get_ai_vigilance_active_settings(id);
+                    return (active_alpha * 255.0).round() as u8;
+                } else {
+                    return 0; // Completely transparent normally
+                }
+            }
+        }
         if self.ai_peeper_detected {
             return 204; // 80% alpha
         }
