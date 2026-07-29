@@ -35,18 +35,15 @@ fn stable_noise(p: vec2<f32>) -> f32 {
 
 fn calc_louver(scrolled: f32, stripe_width: f32, edge_px: f32, base_alpha: f32, is_light_mode: bool) -> f32 {
     let s = scrolled;
-    // Light Mode では「開口部（透明な部分）」のベース濃度を上げることで、画面全体の眩しさを抑え秘匿性を高める
-    // NarrowMask では暗い部分を真っ黒にするため、ベース比率を下げる (0.15 -> 0.0, 0.40 -> 0.30)
-    let min_alpha_ratio = select(0.0, 0.30, is_light_mode);
+    let min_alpha_ratio = select(0.0, 0.15, is_light_mode);
 
     if (s < stripe_width) {
-
         let dist_from_edge = min(stripe_width - s, s);
-        // 滑らかなエッジ処理（エイリアシング対策）
         let edge_factor = clamp(dist_from_edge / edge_px, 0.0, 1.0);
         return base_alpha * mix(min_alpha_ratio, 1.0, edge_factor);
     } else {
-        return base_alpha * min_alpha_ratio;
+        // 開口部 (透明部分): 正面からの透過光を 100% 近く維持し、透過率を大幅向上
+        return 0.0;
     }
 }
 
@@ -85,28 +82,26 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         return vec4<f32>(0.0, 0.0, 0.0, alpha);
 
     } else if (mode == 1u) {
-        // VerticalLouver (Cross-Louver with Diagonal Protection)
+        // VerticalLouver (Ultra-Clear Frontal Aperture & Angle-Dependent Blackout)
         let period = max(period_px * inten, 1.0);
-        let stripe_width = period * clamp(cover_ratio, 0.3, 0.9);
-        let edge_px: f32 = max(1.5, period * 0.08);
+        // 開口率を拡張: 正面からの視認性を最高レベルに保つため、カバー率を適正制御
+        let stripe_width = period * clamp(cover_ratio * 0.70, 0.15, 0.65);
+        let edge_px: f32 = max(1.0, period * 0.05);
         let scroll_speed = scroll_speed_px;
         let burn_in_offset = select(0.0, t * 0.2, panel_type == 1u);
 
-        // 1. 垂直縞 (左右方向) - 常に描画
-        // Subpixel phase stepping: R, G, B で遮蔽位相を 0.33 ピクセルずつずらし、正面視認性と斜め防衛力を両立
+        // Subpixel Micro Phase Stepping: R, G, B で位相を 1/3 周期ずつオフセット
         let sx = in.tex_coords.x * width * 3.0;
-        let sp_idx = f32(u32(floor(sx)) % 3u);
-        let subpixel_shift = sp_idx * (period * 0.33);
+        let sp_idx = u32(floor(sx)) % 3u;
+        let subpixel_shift = f32(sp_idx) * (period * 0.33);
 
         let scrolled_x = ((x + subpixel_shift + t * scroll_speed * 0.7 + burn_in_offset) % period + period) % period;
         var alpha_out = calc_louver(scrolled_x, stripe_width, edge_px, alpha, is_light_mode);
 
         if (bidirectional == 1u) {
-            // 2. 水平縞 (上下方向)
             let scrolled_y = ((y + subpixel_shift * 0.5 + t * scroll_speed) % period + period) % period;
             let alpha_h = calc_louver(scrolled_y, stripe_width, edge_px, alpha, is_light_mode);
 
-            // 3. 斜め成分
             let cos_a = cos(hatch_angle);
             let sin_a = sin(hatch_angle);
             let rotated = (x * cos_a + y * sin_a);
@@ -116,9 +111,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             alpha_out = max(max(alpha_out, alpha_h), alpha_d);
         }
         
-        // 液晶の物理特性（IPS Glow）を突く微小ベースグロー（正面はくっきり、斜めは即座に同化）
-        let base_glow = select(0.0, 0.04 * alpha, !is_light_mode);
-        return vec4<f32>(base_glow, base_glow, base_glow, alpha_out);
+        // 正面からの逆輝度補正（文字のハイコントラスト強調）と斜め色収差
+        let offset_scale = 0.04 * alpha;
+        let r_val = select(0.0, offset_scale, sp_idx == 0u);
+        let b_val = select(0.0, offset_scale, sp_idx == 2u);
+        
+        return vec4<f32>(r_val, 0.0, b_val, alpha_out);
 
     } else if (mode == 2u) {
         // ── OcrJammer (Phase 5: Subpixel UHD Jamming Prototype) ──
