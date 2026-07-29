@@ -1,4 +1,5 @@
 #[cfg(test)]
+#[allow(clippy::module_inception)]
 mod tests {
     use crate::logger;
     use crate::app::AppState;
@@ -21,7 +22,7 @@ mod tests {
             p
         };
 
-        if let Ok(mut file) = fs::File::open(&path) {
+        if let Ok(mut file) = fs::File::open(path) {
             let mut file_content = String::new();
             file.read_to_string(&mut file_content).expect("Should be able to read log file");
             assert!(file_content.contains(test_msg), "Log should contain the test message");

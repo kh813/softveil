@@ -99,7 +99,7 @@ impl TrayHandle {
                 } else {
                     t("この画面を個別で最適化", "Optimize This Screen")
                 };
-                let _ = item.set_text(format!("{} ({}%) ...", base_text, pct));
+                item.set_text(format!("{} ({}%) ...", base_text, pct));
             }
         }
     }
@@ -107,14 +107,14 @@ impl TrayHandle {
     pub fn set_benchmark_running(&self, running: bool) {
         if let Ok(map) = self.benchmark_items.lock() {
             for (id, item) in map.iter() {
-                let _ = item.set_enabled(!running);
+                item.set_enabled(!running);
                 if !running {
                     let base_text = if id.is_none() {
                         t("全画面を最適化する", "Optimize All Screens")
                     } else {
                         t("この画面を個別で最適化", "Optimize This Screen")
                     };
-                    let _ = item.set_text(base_text);
+                    item.set_text(base_text);
                 }
             }
         }

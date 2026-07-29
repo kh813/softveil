@@ -108,7 +108,7 @@ pub fn run_benchmark(gpu: Arc<GpuContext>, mut state: AppState, overlays: &mut V
             }
         }
         
-        report.push_str("\n");
+        report.push('\n');
 
         // Phase 10: Auto-Optimization per monitor
         println!("Running Auto-Optimization search for {}...", monitor_name);
@@ -534,7 +534,7 @@ fn simulate_oblique_view_to_jpg(img: &DynamicImage, output_path: &str) {
             let orig_x = (x as f32 / 0.707) as usize;
             if (orig_x as u32) < w {
                 let in_idx = in_row_offset as usize + orig_x * 4;
-                let out_idx = (out_row_offset as usize + x as usize * 4) as usize;
+                let out_idx = out_row_offset as usize + x as usize * 4;
                 
                 for i in 0..3 {
                     output_raw[out_idx + i] = ((input_raw[in_idx + i] as f32 * 0.8) + 40.0).clamp(0.0, 255.0) as u8;

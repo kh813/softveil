@@ -58,6 +58,7 @@ Softveil is a next-generation software privacy filter for macOS and Windows.
 
 ### 🆕 リリース履歴
 
+*   **v0.1.24**: プライバシーフィルターアルゴリズムの改良（サブピクセル位相ステップ制御による正面視認性と斜め防衛力の両立、IPS Glow追従ベースグロー）、静的解析（clippy）対応およびCI/CD強化。
 *   **v0.1.23**: メニューUIの改善（AI検知モードの集約）、日英バイリンガル対応の強化、「OCR妨害」への名称統一。
 
 ---

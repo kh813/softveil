@@ -93,25 +93,32 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let burn_in_offset = select(0.0, t * 0.2, panel_type == 1u);
 
         // 1. 垂直縞 (左右方向) - 常に描画
-        let scrolled_x = ((x + t * scroll_speed * 0.7 + burn_in_offset) % period + period) % period;
+        // Subpixel phase stepping: R, G, B で遮蔽位相を 0.33 ピクセルずつずらし、正面視認性と斜め防衛力を両立
+        let sx = in.tex_coords.x * width * 3.0;
+        let sp_idx = f32(u32(floor(sx)) % 3u);
+        let subpixel_shift = sp_idx * (period * 0.33);
+
+        let scrolled_x = ((x + subpixel_shift + t * scroll_speed * 0.7 + burn_in_offset) % period + period) % period;
         var alpha_out = calc_louver(scrolled_x, stripe_width, edge_px, alpha, is_light_mode);
 
         if (bidirectional == 1u) {
             // 2. 水平縞 (上下方向)
-            let scrolled_y = ((y + t * scroll_speed) % period + period) % period;
+            let scrolled_y = ((y + subpixel_shift * 0.5 + t * scroll_speed) % period + period) % period;
             let alpha_h = calc_louver(scrolled_y, stripe_width, edge_px, alpha, is_light_mode);
 
             // 3. 斜め成分
             let cos_a = cos(hatch_angle);
             let sin_a = sin(hatch_angle);
             let rotated = (x * cos_a + y * sin_a);
-            let scrolled_d = ((rotated + t * scroll_speed * 0.5) % period + period) % period;
+            let scrolled_d = ((rotated + subpixel_shift * 0.7 + t * scroll_speed * 0.5) % period + period) % period;
             let alpha_d = calc_louver(scrolled_d, stripe_width, edge_px, alpha, is_light_mode);
 
             alpha_out = max(max(alpha_out, alpha_h), alpha_d);
         }
         
-        return vec4<f32>(0.0, 0.0, 0.0, alpha_out);
+        // 液晶の物理特性（IPS Glow）を突く微小ベースグロー（正面はくっきり、斜めは即座に同化）
+        let base_glow = select(0.0, 0.04 * alpha, !is_light_mode);
+        return vec4<f32>(base_glow, base_glow, base_glow, alpha_out);
 
     } else if (mode == 2u) {
         // ── OcrJammer (Phase 5: Subpixel UHD Jamming Prototype) ──

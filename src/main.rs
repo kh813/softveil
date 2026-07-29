@@ -45,13 +45,15 @@ pub enum UserEvent {
     BenchmarkFinished(String),
 }
 
+pub type BenchmarkOverrideParams = (MonitorId, FilterMode, f32, Option<f32>, Option<f32>, Option<f32>);
+
 #[derive(Debug)]
 pub enum BenchmarkCommand {
     Sync,
     Capture(MonitorId, mpsc::Sender<Result<image::DynamicImage, String>>),
     CaptureBatch(Vec<MonitorId>, mpsc::Sender<Vec<(MonitorId, Result<image::DynamicImage, String>)>>),
     SetTestSettings(MonitorId, FilterMode, f32, Option<f32>, Option<f32>, Option<f32>),
-    SetBatchSettings(Vec<(MonitorId, FilterMode, f32, Option<f32>, Option<f32>, Option<f32>)>),
+    SetBatchSettings(Vec<BenchmarkOverrideParams>),
     Progress(f32, String, Option<MonitorId>),
     Finished(Vec<crate::display_config::Preset>, String),
 }

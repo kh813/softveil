@@ -346,7 +346,6 @@ pub fn set_dark_mode(enabled: bool) {
     #[cfg(test)]
     {
         let _ = enabled;
-        return;
     }
 
     #[cfg(not(test))]
@@ -378,7 +377,7 @@ pub fn set_dark_mode(enabled: bool) {
 pub fn get_brightness() -> f32 {
     let mut brightness = 0.5f32;
     unsafe {
-        let matching = IOServiceMatching("IODisplayConnect\0".as_ptr() as *const i8);
+        let matching = IOServiceMatching(c"IODisplayConnect".as_ptr());
         let mut iterator = 0u32;
         let kr = IOServiceGetMatchingServices(0, matching, &mut iterator);
         if kr == 0 {
@@ -402,7 +401,7 @@ pub fn get_brightness() -> f32 {
 
 pub fn set_brightness(level: f32) {
     unsafe {
-        let matching = IOServiceMatching("IODisplayConnect\0".as_ptr() as *const i8);
+        let matching = IOServiceMatching(c"IODisplayConnect".as_ptr());
         let mut iterator = 0u32;
         let kr = IOServiceGetMatchingServices(0, matching, &mut iterator);
         if kr == 0 {
@@ -460,7 +459,6 @@ pub fn send_notification(title: &str, subtitle: &str, body: &str) {
     #[cfg(test)]
     {
         let _ = (title, subtitle, body);
-        return;
     }
 
     #[cfg(not(test))]

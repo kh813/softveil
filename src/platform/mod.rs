@@ -158,18 +158,18 @@ pub fn send_notification(title: &str, subtitle: &str, body: &str) {
 #[cfg(target_os = "macos")]
 #[allow(dead_code)]
 pub fn has_screen_capture_access() -> bool {
-    return macos::has_screen_capture_access();
+    macos::has_screen_capture_access()
 }
 
 #[cfg(target_os = "macos")]
 pub fn preflight_screen_capture_access() -> bool {
-    return macos::preflight_screen_capture_access();
+    macos::preflight_screen_capture_access()
 }
 
 #[cfg(target_os = "macos")]
 #[allow(dead_code)]
 pub fn request_screen_capture_access() -> bool {
-    return macos::request_screen_capture_access();
+    macos::request_screen_capture_access()
 }
 
 pub fn is_dark_mode() -> bool {
