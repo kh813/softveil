@@ -35,14 +35,13 @@ fn stable_noise(p: vec2<f32>) -> f32 {
 
 fn calc_louver(scrolled: f32, stripe_width: f32, edge_px: f32, base_alpha: f32, is_light_mode: bool) -> f32 {
     let s = scrolled;
-    let min_alpha_ratio = select(0.0, 0.15, is_light_mode);
 
     if (s < stripe_width) {
         let dist_from_edge = min(stripe_width - s, s);
         let edge_factor = clamp(dist_from_edge / edge_px, 0.0, 1.0);
-        return base_alpha * mix(min_alpha_ratio, 1.0, edge_factor);
+        return base_alpha * edge_factor;
     } else {
-        // 開口部 (透明部分): 正面からの透過光を 100% 近く維持し、透過率を大幅向上
+        // 開口部 (Narrow Pixel 透過エリア): 100% 透過 (alpha = 0) で正面明るさと鮮明度を維持
         return 0.0;
     }
 }
@@ -82,15 +81,16 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         return vec4<f32>(0.0, 0.0, 0.0, alpha);
 
     } else if (mode == 1u) {
-        // VerticalLouver (Ultra-Clear Frontal Aperture & Angle-Dependent Blackout)
-        let period = max(period_px * inten, 1.0);
-        // 開口率を拡張: 正面からの視認性を最高レベルに保つため、カバー率を適正制御
-        let stripe_width = period * clamp(cover_ratio * 0.70, 0.15, 0.65);
-        let edge_px: f32 = max(1.0, period * 0.05);
+        // VerticalLouver (Samsung Flex Magic Pixel Inspired Narrow-Aperture Strategy)
+        let period = max(period_px * inten, 2.0);
+        
+        // 正面透過性の向上: 開口部を 100% 透過に保つため、遮蔽線（Wide成分遮蔽）の割合を最適制御
+        let stripe_width = period * clamp(cover_ratio * 0.60, 0.10, 0.50);
+        let edge_px: f32 = max(0.5, period * 0.03);
         let scroll_speed = scroll_speed_px;
-        let burn_in_offset = select(0.0, t * 0.2, panel_type == 1u);
+        let burn_in_offset = select(0.0, t * 0.15, panel_type == 1u);
 
-        // Subpixel Micro Phase Stepping: R, G, B で位相を 1/3 周期ずつオフセット
+        // Subpixel Micro Phase Stepping: R, G, B で位相を 1/3 周期ずつオフセットして斜め色収差を誘導
         let sx = in.tex_coords.x * width * 3.0;
         let sp_idx = u32(floor(sx)) % 3u;
         let subpixel_shift = f32(sp_idx) * (period * 0.33);
@@ -102,132 +102,125 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             let scrolled_y = ((y + subpixel_shift * 0.5 + t * scroll_speed) % period + period) % period;
             let alpha_h = calc_louver(scrolled_y, stripe_width, edge_px, alpha, is_light_mode);
 
-            let cos_a = cos(hatch_angle);
-            let sin_a = sin(hatch_angle);
             let rotated = (x * cos_a + y * sin_a);
             let scrolled_d = ((rotated + subpixel_shift * 0.7 + t * scroll_speed * 0.5) % period + period) % period;
             let alpha_d = calc_louver(scrolled_d, stripe_width, edge_px, alpha, is_light_mode);
 
             alpha_out = max(max(alpha_out, alpha_h), alpha_d);
         }
-        
-        // 正面からの逆輝度補正（文字のハイコントラスト強調）と斜め色収差
-        let offset_scale = 0.04 * alpha;
-        let r_val = select(0.0, offset_scale, sp_idx == 0u);
-        let b_val = select(0.0, offset_scale, sp_idx == 2u);
-        
-        return vec4<f32>(r_val, 0.0, b_val, alpha_out);
+
+        if (panel_type == 1u) {
+            // OLED: 完璧な真黒による鋭い光束分離 (Narrow Pixel 透過)
+            return vec4<f32>(0.0, 0.0, 0.0, alpha_out);
+        } else {
+            // LCD: 斜め視野角における白浮き/視野角減衰を利用した微細コントラスト障害
+            let offset_scale = 0.05 * alpha;
+            let r_val = select(0.0, offset_scale, sp_idx == 0u);
+            let b_val = select(0.0, offset_scale, sp_idx == 2u);
+            return vec4<f32>(r_val, 0.0, b_val, alpha_out);
+        }
 
     } else if (mode == 2u) {
-        // ── OcrJammer (Phase 5: Subpixel UHD Jamming Prototype) ──
+        // ── OcrJammer (Subpixel High-Frequency Micro Jamming) ──
         let p = max(period_px * 0.4 * max(inten, 0.2), 1.0);
         let row = i32(floor(y / p));
         let x_off = select(0.0, p * 0.5, row % 2 == 0);
         let x_p = ((x + x_off + t * scroll_speed_px * 0.1) % p + p) % p;
         let y_p = (y % p + p) % p;
         
-        let is_aperture = (x_p < p * 0.45) && (y_p < p * 0.45);
-        // Light Mode では Aperture 部分も少し暗くする
-        let min_a = select(0.0, alpha * 0.3, is_light_mode);
-        var alpha_main = select(alpha, min_a, is_aperture);
+        // 正面視感度のための広いアパーチャ (100% 透過)
+        let is_aperture = (x_p < p * 0.50) && (y_p < p * 0.50);
+        var alpha_main = select(alpha, 0.0, is_aperture);
 
         let n_coord = floor(vec2<f32>(x, y) * 2.0); 
         let t_step = floor(t * 8.0);
         let n_static = stable_noise(n_coord);
         let n_anim = stable_noise(n_coord + t_step);
-        let alpha_noise = select(0.0, alpha * 0.6, (n_static > 0.80) || (n_anim > 0.92));
+        let alpha_noise = select(0.0, alpha * 0.5, (n_static > 0.85) || (n_anim > 0.94));
         
         let final_alpha = clamp(max(alpha_main, alpha_noise), 0.0, 1.0);
         return vec4<f32>(0.0, 0.0, 0.0, final_alpha);
             
     } else if (mode == 3u) {
-        // ── HighIntensitySPD (Adaptive Narrow-Pixel Strategy) ─────────
+        // ── HighIntensitySPD (Samsung Flex Magic Pixel Narrow-Pixel Mode) ─────────
         if (panel_type == 1u) {
-            // OLED V5 Subpixel Kinetic Void
-            let p = max(period_px * 0.2, 2.0);
+            // OLED: Narrow Pixel Self-Emissive Slit (発光光束の指向性擬似再現)
+            // ピクセル開口（Narrow成分）を 100% 透過に保ち、Wide成分（広角光）の周縁部のみをアトミック遮蔽
+            let p = max(period_px * 0.25, 2.0);
             let fps = max(refresh_rate, 30u);
             let phase = floor(t * f32(fps)) % 4.0 * (p * 0.25);
             let x_p = ((x + phase) % p + p) % p;
             let y_p = ((y + phase * 0.7) % p + p) % p;
             
-            let is_slit = (x_p < p * 0.1) || (y_p < p * 0.1);
-            let alpha_base = alpha * 0.88;   // 0.95 → 0.88（OLED 正面視認性を改善）
-            let alpha_slit = select(alpha * 0.1, alpha * 0.25, is_light_mode);
-            var alpha_main = select(alpha_base, alpha_slit, is_slit);
+            // 狭角（Narrow）開口部: 透過 (alpha = 0.0)
+            let is_narrow_aperture = (x_p < p * 0.35) && (y_p < p * 0.35);
+            let alpha_main = select(alpha, 0.0, is_narrow_aperture);
 
-            let sub_n = stable_noise(vec2<f32>(x * 3.0, y) + t);
-            let final_alpha = clamp(alpha_main + select(0.0, 0.2, sub_n > 0.9), 0.0, 1.0);
+            // 斜めからの覗き見に対して高周波サブピクセル位相干渉を発生させる
+            let sub_n = stable_noise(vec2<f32>(x * 3.0, y) + t * 0.1);
+            let final_alpha = clamp(alpha_main + select(0.0, 0.15 * alpha, sub_n > 0.92), 0.0, 1.0);
             return vec4<f32>(0.0, 0.0, 0.0, final_alpha);
             
         } else {
-            // LCD: NarrowMask Mode
-            // gap = 1px の窓を残して残りを完全黒 (alpha=1.0) で塞ぐ
-            let gap_px = 1.0;
-            let stripe_px = max(floor(1.0 / max(1.0 - cover_ratio, 0.1)), 1.0);
+            // LCD: Spatial Aperture & Contrast Collapse
+            // 1.5px のクリア窓を残し、遮蔽部は液晶の視野角コントラスト崩壊を利用
+            let gap_px = 1.5;
+            let stripe_px = max(floor(2.0 / max(1.0 - cover_ratio, 0.1)), 1.0);
             let p = gap_px + stripe_px;
             
             let scroll_x = ((x + t * scroll_speed_px) % p + p) % p;
             
-            // gap部分: alpha そのまま（ユーザー設定の明るさ）
-            // stripe部分: alpha = 1.0（完全遮蔽 / 真の黒）
             let in_gap_x = scroll_x < gap_px;
-            let final_a_x = select(1.0, alpha, in_gap_x);
+            let final_a_x = select(alpha * 0.9, 0.0, in_gap_x);
             
             if (bidirectional == 1u) {
                 let scroll_y = ((y + t * scroll_speed_px * 0.7) % p + p) % p;
                 let in_gap_y = scroll_y < gap_px;
-                // 縦横どちらかが gap に入っている場合のみ明るい (OR合成)
                 let in_any_gap = in_gap_x || in_gap_y;
-                return vec4<f32>(0.0, 0.0, 0.0, select(1.0, alpha, in_any_gap));
+                return vec4<f32>(0.0, 0.0, 0.0, select(alpha * 0.9, 0.0, in_any_gap));
             }
             
             return vec4<f32>(0.0, 0.0, 0.0, final_a_x);
         }
     } else if (mode == 4u) {
-        // ── StealthDark (Integrated Stealth Switch) ──────────────────
-        // Optimized for dark environments and low brightness.
-        
-        // 1. Static UHF Dithering (1x1 checkerboard)
+        // ── StealthDark (Narrow Pixel Emulation & Low-Luma Contrast Collapse) ──
         let dither = (floor(x) + floor(y)) % 2.0;
-        let alpha_dither = alpha * 0.15 * dither;
+        let alpha_dither = alpha * 0.10 * dither;
 
         if (panel_type == 1u) {
-            // OLED: Narrow Aperture Enhancement (UNA)
+            // OLED: Narrow Pixel Grid (100% 透過の狭角アパーチャ + 超静音 drift)
             let p = 2.0;
-            // 超低速ドリフト（約 0.1px/s、視覚上は静止）
             let drift = floor(t * 0.1) % 2.0;
             let drift_x = u32(drift);
             let drift_y = u32(drift);
-            let is_aperture = ((u32(x) + drift_x) % 2u == 0u) && ((u32(y) + drift_y) % 2u == 0u);
-            var alpha_main = select(alpha * 0.92, 0.0, is_aperture);
+            let is_narrow_pixel = ((u32(x) + drift_x) % 2u == 0u) && ((u32(y) + drift_y) % 2u == 0u);
+            
+            // Narrow Pixel (開口部) は完全透明 0.0、背景遮蔽部は alpha
+            let alpha_main = select(alpha, 0.0, is_narrow_pixel);
             return vec4<f32>(0.0, 0.0, 0.0, max(alpha_main, alpha_dither));
         } else {
             // LCD: Low-Luma Contrast Collapse (LLCC)
-            let glow = 0.12 * luminance_compress; 
+            let glow = 0.08 * luminance_compress; 
             
             let p_raw = max(period_px * 0.5, 3.0);
-            let p = u32(max(floor(p_raw), 3.0)); // 整数ピクセルにスナップ
-            let is_grid = (u32(floor(x)) % p < 1u) || (u32(floor(y)) % p < 1u);
-            let alpha_main = select(alpha * 0.85, 0.0, is_grid);
+            let p = u32(max(floor(p_raw), 3.0));
+            let is_aperture = (u32(floor(x)) % p >= 1u) && (u32(floor(y)) % p >= 1u);
+            let alpha_main = select(alpha * 0.85, 0.0, is_aperture);
             
             let final_alpha = clamp(max(alpha_main, alpha_dither), 0.0, 1.0);
             return vec4<f32>(glow, glow, glow, final_alpha);
         }
     } else if (mode == 5u) {
-        // ── StealthLight (Subpixel UHD Jamming) ──
-        // Optimized for light environments. Uses subpixel-level control to increase color shift.
-        
-        let subpixel_noise = stable_noise(vec2<f32>(floor(x * 3.0), floor(y))) * 0.15 * alpha;
+        // ── StealthLight (Subpixel Narrow-Aperture UHD Jamming) ──
+        let subpixel_noise = stable_noise(vec2<f32>(floor(x * 3.0), floor(y))) * 0.10 * alpha;
 
         if (panel_type == 1u) {
-            // OLED: High-Luma Narrow Slit
-            let p = 3.0;
-            let is_slit = (u32(x) % 3u == 0u);
-            let base_dim = 0.05 * (1.0 - alpha);
-            var alpha_main = select(alpha * 0.8, 0.0, is_slit);
-            return vec4<f32>(base_dim, base_dim, base_dim, clamp(alpha_main + subpixel_noise, 0.0, 1.0));
+            // OLED: Narrow Slit Aperture (高輝度環境向け)
+            let is_narrow_slit = (u32(x) % 3u == 0u);
+            let alpha_main = select(alpha * 0.85, 0.0, is_narrow_slit);
+            return vec4<f32>(0.0, 0.0, 0.0, clamp(alpha_main + subpixel_noise, 0.0, 1.0));
         } else {
-            // LCD: Subpixel UHD Jamming with HLCC (Contrast Collapse)
+            // LCD: Subpixel UHD Jamming with Spatial Contrast Collapse
             let p_raw = max(period_px * 0.4, 2.0);
             let p = u32(max(floor(p_raw), 2.0));
             
@@ -235,18 +228,18 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             let sy = in.tex_coords.y * height;
             let sp_idx = u32(floor(sx)) % 3u;
             
-            let veil = 0.22 * alpha;
-            
+            let veil = 0.15 * alpha;
             let shift = f32(sp_idx);
-            let is_fine_line = (u32(floor(sx + shift)) % (p * 3u) < 1u);
+            let is_fine_aperture = (u32(floor(sx + shift)) % (p * 3u) < 1u);
             
-            let alpha_main = select(alpha * 0.7, 0.0, is_fine_line);
-            let noise = stable_noise(vec2<f32>(floor(sx), floor(sy))) * 0.1 * alpha;
+            // 正面高透過 (開口部は alpha = 0.0)
+            let alpha_main = select(alpha * 0.75, 0.0, is_fine_aperture);
+            let noise = stable_noise(vec2<f32>(floor(sx), floor(sy))) * 0.08 * alpha;
             
             let final_a = clamp(alpha_main + noise, 0.0, 1.0);
             
-            // Intentional chromatic aberration effect
-            let offset_scale = 0.06 * alpha;
+            // 意図的サブピクセル色干渉
+            let offset_scale = 0.05 * alpha;
             let r_offset = select(0.0, offset_scale, sp_idx == 0u);
             let b_offset = select(0.0, -offset_scale, sp_idx == 2u);
             
